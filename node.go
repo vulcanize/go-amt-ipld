@@ -356,10 +356,15 @@ func (n *node) forEachAt(ctx context.Context, bs cbor.IpldStore, bitWidth uint, 
 // the left-most leaf node.
 // This method also provides the trail of indices at each height/level in the way to the current node, which can be used to formulate a selector suffixes
 func (n *node) forEachAtTracked(ctx context.Context, bs cbor.IpldStore, trail []int, bitWidth uint, height int, start, offset uint64, cb func(uint64, *cbg.Deferred, []int) error) error {
+	l := len(trail)
 	if height == 0 {
 		// height=0 means we're at leaf nodes and get to use our callback
 		for i, v := range n.values {
 			if v != nil {
+				subTrail := make([]int, l, l+1)
+				copy(subTrail, trail)
+				subTrail = append(subTrail, i)
+
 				ix := offset + uint64(i)
 				if ix < start {
 					// if we're here, 'start' is probably somewhere in the
@@ -369,7 +374,7 @@ func (n *node) forEachAtTracked(ctx context.Context, bs cbor.IpldStore, trail []
 
 				// use 'offset' to determine the actual index for this element, it
 				// tells us how distant we are from the left-most leaf node
-				if err := cb(ix, v, append(trail, i)); err != nil {
+				if err := cb(ix, v, subTrail); err != nil {
 					return err
 				}
 			}
@@ -383,6 +388,10 @@ func (n *node) forEachAtTracked(ctx context.Context, bs cbor.IpldStore, trail []
 		if ln == nil {
 			continue
 		}
+
+		subTrail := make([]int, l, l+1)
+		copy(subTrail, trail)
+		subTrail = append(subTrail, i)
 
 		// 'offs' tells us the index of the left-most element of the subtree defined
 		// by 'sub'
@@ -402,7 +411,7 @@ func (n *node) forEachAtTracked(ctx context.Context, bs cbor.IpldStore, trail []
 
 		// recurse into the child node, providing 'offs' to tell it where it's
 		// located in the tree
-		if err := subn.forEachAtTracked(ctx, bs, append(trail, i), bitWidth, height-1, start, offs, cb); err != nil {
+		if err := subn.forEachAtTracked(ctx, bs, subTrail, bitWidth, height-1, start, offs, cb); err != nil {
 			return err
 		}
 	}
@@ -434,10 +443,15 @@ func (n *node) forEachAtTrackedWithNodeSink(ctx context.Context, bs cbor.IpldSto
 			return err
 		}
 	}
+	l := len(trail)
 	if height == 0 {
 		// height=0 means we're at leaf nodes and get to use our callback
 		for i, v := range n.values {
 			if v != nil {
+				subTrail := make([]int, l, l+1)
+				copy(subTrail, trail)
+				subTrail = append(subTrail, i)
+
 				ix := offset + uint64(i)
 				if ix < start {
 					// if we're here, 'start' is probably somewhere in the
@@ -447,7 +461,7 @@ func (n *node) forEachAtTrackedWithNodeSink(ctx context.Context, bs cbor.IpldSto
 
 				// use 'offset' to determine the actual index for this element, it
 				// tells us how distant we are from the left-most leaf node
-				if err := cb(ix, v, append(trail, i)); err != nil {
+				if err := cb(ix, v, subTrail); err != nil {
 					return err
 				}
 			}
@@ -461,6 +475,10 @@ func (n *node) forEachAtTrackedWithNodeSink(ctx context.Context, bs cbor.IpldSto
 		if ln == nil {
 			continue
 		}
+
+		subTrail := make([]int, l, l+1)
+		copy(subTrail, trail)
+		subTrail = append(subTrail, i)
 
 		// 'offs' tells us the index of the left-most element of the subtree defined
 		// by 'sub'
@@ -480,7 +498,7 @@ func (n *node) forEachAtTrackedWithNodeSink(ctx context.Context, bs cbor.IpldSto
 
 		// recurse into the child node, providing 'offs' to tell it where it's
 		// located in the tree
-		if err := subn.forEachAtTracked(ctx, bs, append(trail, i), bitWidth, height-1, start, offs, cb); err != nil {
+		if err := subn.forEachAtTracked(ctx, bs, subTrail, bitWidth, height-1, start, offs, cb); err != nil {
 			return err
 		}
 	}
