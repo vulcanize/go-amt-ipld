@@ -62,7 +62,7 @@ func newMockBlocks() *mockBlocks {
 	return &mockBlocks{make(map[cid.Cid]block.Block), sync.Mutex{}, 0, 0}
 }
 
-func (mb *mockBlocks) Get(c cid.Cid) (block.Block, error) {
+func (mb *mockBlocks) Get(ctx context.Context, c cid.Cid) (block.Block, error) {
 	mb.dataMu.Lock()
 	defer mb.dataMu.Unlock()
 	d, ok := mb.data[c]
@@ -73,7 +73,24 @@ func (mb *mockBlocks) Get(c cid.Cid) (block.Block, error) {
 	return nil, fmt.Errorf("Not Found")
 }
 
-func (mb *mockBlocks) Put(b block.Block) error {
+func (mb *mockBlocks) GetMany(ctx context.Context, cs []cid.Cid) ([]block.Block, []cid.Cid, error) {
+	mb.dataMu.Lock()
+	defer mb.dataMu.Unlock()
+	blocks := make([]block.Block, 0, len(cs))
+	missingCIDs := make([]cid.Cid, 0, len(cs))
+	for _, c := range cs {
+		mb.getCount++
+		d, ok := mb.data[c]
+		if !ok {
+			missingCIDs = append(missingCIDs, c)
+		} else {
+			blocks = append(blocks, d)
+		}
+	}
+	return blocks, missingCIDs, nil
+}
+
+func (mb *mockBlocks) Put(ctx context.Context, b block.Block) error {
 	mb.dataMu.Lock()
 	defer mb.dataMu.Unlock()
 	mb.putCount++
@@ -364,6 +381,49 @@ func TestForEachWithoutFlush(t *testing.T) {
 				delete(set2, u)
 				return nil
 			})
+			assert.Equal(t, make(map[uint64]struct{}), set2)
+		}
+	})
+}
+
+func TestForEachParallel(t *testing.T) {
+	runTestWithBitWidths(t, bitWidths2to18, func(t *testing.T, opts ...Option) {
+		bs := cbor.NewGetManyCborStore(newMockBlocks())
+		ctx := context.Background()
+
+		for _, vals := range [][]uint64{
+			{0, 1, 2, 3, 4, 5, 6, 7},
+			{8},
+			{8, 9, 64},
+			{64, 8, 9},
+		} {
+			amt, err := NewAMT(bs, opts...)
+			require.NoError(t, err)
+			set1 := make(map[uint64]struct{})
+			set2 := make(map[uint64]struct{})
+			for _, val := range vals {
+				err := amt.Set(ctx, val, cborstr(""))
+				require.NoError(t, err)
+
+				set1[val] = struct{}{}
+				set2[val] = struct{}{}
+			}
+			err = amt.ForEachParallel(ctx, 16, func(u uint64, deferred *cbg.Deferred) error {
+				delete(set1, u)
+				return nil
+			})
+			require.NoError(t, err)
+			assert.Equal(t, make(map[uint64]struct{}), set1)
+
+			// ensure it still works after flush
+			_, err = amt.Flush(ctx)
+			require.NoError(t, err)
+
+			err = amt.ForEachParallel(ctx, 16, func(u uint64, deferred *cbg.Deferred) error {
+				delete(set2, u)
+				return nil
+			})
+			require.NoError(t, err)
 			assert.Equal(t, make(map[uint64]struct{}), set2)
 		}
 	})
