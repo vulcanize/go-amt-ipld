@@ -338,8 +338,24 @@ func (r *Root) ForEachParallel(ctx context.Context, concurrency int, cb func(uin
 	return r.node.forEachAtParallel(ctx, r.store, r.bitWidth, r.height, 0, 0, cb, concurrency)
 }
 
+func (r *Root) ForEachParallelTracked(ctx context.Context, concurrency int, trail []int, cb func(uint64, *cbg.Deferred, []int) error) error {
+	return r.node.forEachAtParallelTracked(ctx, r.store, trail, r.bitWidth, r.height, 0, 0, cb, concurrency)
+}
+
+func (r *Root) ForEachParallelTrackWithNodeSink(ctx context.Context, concurrency int, trail []int, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) error {
+	return r.node.forEachAtParallelTrackedWithNodeSink(ctx, r.store, trail, r.bitWidth, r.height, 0, 0, b, sink, cb, concurrency)
+}
+
 func (r *Root) ForEachAtParallel(ctx context.Context, start uint64, concurrency int, cb func(uint64, *cbg.Deferred) error) error {
 	return r.node.forEachAtParallel(ctx, r.store, r.bitWidth, r.height, start, 0, cb, concurrency)
+}
+
+func (r *Root) ForEachAtParallelTracked(ctx context.Context, start uint64, concurrency int, trail []int, cb func(uint64, *cbg.Deferred, []int) error) error {
+	return r.node.forEachAtParallelTracked(ctx, r.store, trail, r.bitWidth, r.height, start, 0, cb, concurrency)
+}
+
+func (r *Root) ForEachAtParallelTrackedWithNodeSink(ctx context.Context, start uint64, concurrency int, trail []int, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) error {
+	return r.node.forEachAtParallelTrackedWithNodeSink(ctx, r.store, trail, r.bitWidth, r.height, start, 0, b, sink, cb, concurrency)
 }
 
 // FirstSetIndex finds the lowest index in this AMT that has a value set for
