@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math/bits"
 
+	"golang.org/x/sync/errgroup"
+
 	cid "github.com/ipfs/go-cid"
 	cbor "github.com/ipfs/go-ipld-cbor"
 	logging "github.com/ipfs/go-log"
@@ -256,8 +258,16 @@ func (r *Root) ForEach(ctx context.Context, cb func(uint64, *cbg.Deferred) error
 	return r.Node.forEachAt(ctx, r.store, int(r.Height), 0, 0, cb)
 }
 
+func (r *Root) ForEachParallel(ctx context.Context, concurrency int, cb func(uint64, *cbg.Deferred) error) error {
+	return r.Node.forEachAtParallel(ctx, r.store, int(r.Height), 0, 0, cb, concurrency)
+}
+
 func (r *Root) ForEachAt(ctx context.Context, start uint64, cb func(uint64, *cbg.Deferred) error) error {
 	return r.Node.forEachAt(ctx, r.store, int(r.Height), start, 0, cb)
+}
+
+func (r *Root) ForEachAtParallel(ctx context.Context, concurrency int, start uint64, cb func(uint64, *cbg.Deferred) error) error {
+	return r.Node.forEachAtParallel(ctx, r.store, int(r.Height), start, 0, cb, concurrency)
 }
 
 func (n *Node) forEachAt(ctx context.Context, bs cbor.IpldStore, height int, start, offset uint64, cb func(uint64, *cbg.Deferred) error) error {
@@ -309,6 +319,212 @@ func (n *Node) forEachAt(ctx context.Context, bs cbor.IpldStore, height int, sta
 	}
 	return nil
 
+}
+
+type listChildren struct {
+	children []child
+}
+
+type link struct {
+	cid    cid.Cid
+	cached *Node
+}
+
+type child struct {
+	link *link
+	descentContext
+}
+
+type descentContext struct {
+	height int
+	offset uint64
+}
+
+func (n *Node) forEachAtParallel(ctx context.Context, bs cbor.IpldStore, height int, start, offset uint64, cb func(uint64, *cbg.Deferred) error, concurrency int) error {
+	// Setup synchronization
+	grp, errGrpCtx := errgroup.WithContext(ctx)
+
+	// Input and output queues for workers.
+	feed := make(chan *listChildren)
+	out := make(chan *listChildren)
+	done := make(chan struct{})
+
+	for i := 0; i < concurrency; i++ {
+		grp.Go(func() error {
+			for childrenList := range feed {
+				linksToVisit := make([]cid.Cid, 0, len(childrenList.children))
+				linksToVisitContext := make([]descentContext, 0, len(childrenList.children))
+				cachedNodes := make([]*Node, 0, len(childrenList.children))
+				cachedNodesContext := make([]descentContext, 0, len(childrenList.children))
+				for _, child := range childrenList.children {
+					if child.link.cached != nil {
+						cachedNodes = append(cachedNodes, child.link.cached)
+						cachedNodesContext = append(cachedNodesContext, child.descentContext)
+					} else {
+						linksToVisit = append(linksToVisit, child.link.cid)
+						linksToVisitContext = append(linksToVisitContext, child.descentContext)
+					}
+				}
+
+				dserv := bs.(cbor.IpldGetManyStore)
+				nodes := make([]interface{}, len(linksToVisit))
+				for j := 0; j < len(linksToVisit); j++ {
+					nodes[j] = new(Node)
+				}
+				cursorChan, missingCIDs, err := dserv.GetMany(errGrpCtx, linksToVisit, nodes)
+				if err != nil {
+					return err
+				}
+				if len(missingCIDs) != 0 {
+					return fmt.Errorf("GetMany returned an incomplete result set. The set is missing these CIDs: %+v", missingCIDs)
+				}
+				for cursor := range cursorChan {
+					if cursor.Err != nil {
+						return cursor.Err
+					}
+					nextNode, ok := nodes[cursor.Index].(*Node)
+					if !ok {
+						return fmt.Errorf("expected node, got %T", nodes[cursor.Index])
+					}
+					nextChildren, err := nextNode.walkChildren(ctx, linksToVisitContext[cursor.Index].height, start, linksToVisitContext[cursor.Index].offset, cb)
+					if err != nil {
+						return err
+					}
+					select {
+					case <-errGrpCtx.Done():
+						return nil
+					default:
+						if nextChildren != nil {
+							out <- nextChildren
+						}
+					}
+				}
+				for j, cachedNode := range cachedNodes {
+					nextChildren, err := cachedNode.walkChildren(ctx, cachedNodesContext[j].height, start, cachedNodesContext[j].offset, cb)
+					if err != nil {
+						return err
+					}
+					select {
+					case <-errGrpCtx.Done():
+						return nil
+					default:
+						if nextChildren != nil {
+							out <- nextChildren
+						}
+					}
+				}
+
+				select {
+				case done <- struct{}{}:
+				case <-errGrpCtx.Done():
+				}
+			}
+			return nil
+		})
+	}
+
+	send := feed
+	var todoQueue []*listChildren
+	var inProgress int
+
+	// start the walk
+	children, err := n.walkChildren(ctx, height, start, offset, cb)
+	// if we hit an error or there are no children, then we're done
+	if err != nil || children == nil {
+		close(feed)
+		grp.Wait()
+		return err
+	}
+	next := children
+
+dispatcherLoop:
+	for {
+		select {
+		case send <- next:
+			inProgress++
+			if len(todoQueue) > 0 {
+				next = todoQueue[0]
+				todoQueue = todoQueue[1:]
+			} else {
+				next = nil
+				send = nil
+			}
+		case <-done:
+			inProgress--
+			if inProgress == 0 && next == nil {
+				break dispatcherLoop
+			}
+		case nextNodes := <-out:
+			if next == nil {
+				next = nextNodes
+				send = feed
+			} else {
+				todoQueue = append(todoQueue, nextNodes)
+			}
+		case <-errGrpCtx.Done():
+			break dispatcherLoop
+		}
+	}
+	close(feed)
+	return grp.Wait()
+}
+
+func (n *Node) walkChildren(ctx context.Context, height int, start, offset uint64, cb func(uint64, *cbg.Deferred) error) (*listChildren, error) {
+	if height == 0 {
+		n.expandValues()
+
+		for i, v := range n.expVals {
+			if v != nil {
+				ix := offset + uint64(i)
+				if ix < start {
+					continue
+				}
+
+				if err := cb(offset+uint64(i), v); err != nil {
+					return nil, err
+				}
+			}
+		}
+
+		return nil, nil
+	}
+
+	if n.cache == nil {
+		n.expandLinks()
+	}
+
+	subCount := nodesForHeight(height)
+	children := make([]child, 0, len(n.expLinks))
+	for i, v := range n.expLinks {
+		var sub *Node
+		var c cid.Cid
+		if n.cache[i] != nil {
+			sub = n.cache[i]
+		} else if v != cid.Undef {
+			c = v
+		} else {
+			continue
+		}
+
+		offs := offset + (uint64(i) * subCount)
+		nextOffs := offs + subCount
+		if start >= nextOffs {
+			continue
+		}
+
+		children = append(children, child{
+			link: &link{
+				cid:    c,
+				cached: sub,
+			},
+			descentContext: descentContext{
+				height: height - 1,
+				offset: offs,
+			},
+		})
+	}
+
+	return &listChildren{children: children}, nil
 }
 
 func (r *Root) FirstSetIndex(ctx context.Context) (uint64, error) {
