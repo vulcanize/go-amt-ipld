@@ -676,6 +676,7 @@ func TestForEachParallel(t *testing.T) {
 
 	assertCount(t, a, uint64(len(indexes)))
 
+	// test before flush
 	m := sync.Mutex{}
 	foundVals := make(map[uint64]struct{})
 	err := a.ForEachParallel(ctx, 16, func(i uint64, v *cbg.Deferred) error {
@@ -687,13 +688,30 @@ func TestForEachParallel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(indexes) != len(foundVals) {
+	if len(foundVals) != len(indexes) {
 		t.Fatal("didnt see enough values")
 	}
 
 	c, err := a.Flush(ctx)
 	if err != nil {
 		t.Fatal(err)
+	}
+
+	assertCount(t, a, uint64(len(indexes)))
+
+	// test after flush
+	foundVals = make(map[uint64]struct{})
+	err = a.ForEachParallel(ctx, 16, func(i uint64, v *cbg.Deferred) error {
+		m.Lock()
+		foundVals[i] = struct{}{}
+		m.Unlock()
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(foundVals) != len(indexes) {
+		t.Fatal("didnt see enough values")
 	}
 
 	na, err := LoadAMT(ctx, bs, c)
@@ -703,6 +721,7 @@ func TestForEachParallel(t *testing.T) {
 
 	assertCount(t, na, uint64(len(indexes)))
 
+	// test from loaded AMT
 	foundVals = make(map[uint64]struct{})
 	err = na.ForEachParallel(ctx, 16, func(i uint64, v *cbg.Deferred) error {
 		m.Lock()
@@ -713,7 +732,7 @@ func TestForEachParallel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(indexes) != len(foundVals) {
+	if len(foundVals) != len(indexes) {
 		t.Fatal("didnt see enough values")
 	}
 }
@@ -780,7 +799,7 @@ func TestForEachAt(t *testing.T) {
 }
 
 func TestForEachAtParallel(t *testing.T) {
-	bs := cbor.NewGetManyCborStore(newMockBlocks())
+	bs := cbor.NewCborStore(newMockBlocks())
 	ctx := context.Background()
 	a := NewAMT(bs)
 
@@ -816,7 +835,7 @@ func TestForEachAtParallel(t *testing.T) {
 	}
 
 	assertCount(t, na, uint64(len(indexes)))
-
+	m := sync.Mutex{}
 	for try := 0; try < 10; try++ {
 		start := uint64(r.Intn(10000))
 
@@ -824,7 +843,9 @@ func TestForEachAtParallel(t *testing.T) {
 		for ; indexes[x] < start; x++ {
 		}
 
-		err = na.ForEachAtParallel(ctx, 16, start, func(i uint64, v *cbg.Deferred) error {
+		err = na.ForEachAt(ctx, start, func(i uint64, v *cbg.Deferred) error {
+			m.Lock()
+			defer m.Unlock()
 			if i != indexes[x] {
 				t.Fatal("got wrong index", i, indexes[x], x)
 			}
