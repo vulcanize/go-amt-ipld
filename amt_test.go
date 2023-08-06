@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"sync"
 	"testing"
 	"time"
 
@@ -656,24 +657,39 @@ func TestForEachParallel(t *testing.T) {
 
 	r := rand.New(rand.NewSource(101))
 
-	var indexes []uint64
+	indexes := make(map[uint64]struct{})
 	for i := 0; i < 10000; i++ {
 		if r.Intn(2) == 0 {
-			indexes = append(indexes, uint64(i))
+			indexes[uint64(i)] = struct{}{}
 		}
 	}
 
-	for _, i := range indexes {
+	for i := range indexes {
 		if err := a.Set(ctx, i, "value"); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	for _, i := range indexes {
+	for i := range indexes {
 		assertGet(ctx, t, a, i, "value")
 	}
 
 	assertCount(t, a, uint64(len(indexes)))
+
+	m := sync.Mutex{}
+	foundVals := make(map[uint64]struct{})
+	err := a.ForEachParallel(ctx, 16, func(i uint64, v *cbg.Deferred) error {
+		m.Lock()
+		foundVals[i] = struct{}{}
+		m.Unlock()
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(indexes) != len(foundVals) {
+		t.Fatal("didnt see enough values")
+	}
 
 	c, err := a.Flush(ctx)
 	if err != nil {
@@ -687,18 +703,17 @@ func TestForEachParallel(t *testing.T) {
 
 	assertCount(t, na, uint64(len(indexes)))
 
-	var x int
+	foundVals = make(map[uint64]struct{})
 	err = na.ForEachParallel(ctx, 16, func(i uint64, v *cbg.Deferred) error {
-		if i != indexes[x] {
-			t.Fatal("got wrong index", i, indexes[x], x)
-		}
-		x++
+		m.Lock()
+		foundVals[i] = struct{}{}
+		m.Unlock()
 		return nil
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if x != len(indexes) {
+	if len(indexes) != len(foundVals) {
 		t.Fatal("didnt see enough values")
 	}
 }
