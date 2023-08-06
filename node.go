@@ -538,7 +538,6 @@ type listChildrenTracked struct {
 func (n *node) forEachAtParallel(ctx context.Context, bs cbor.IpldStore, bitWidth uint, height int, start, offset uint64, cb func(uint64, *cbg.Deferred) error, concurrency int) error {
 	// Setup synchronization
 	grp, errGrpCtx := errgroup.WithContext(ctx)
-
 	// Input and output queues for workers.
 	feed := make(chan *listChildren)
 	out := make(chan *listChildren)
@@ -548,7 +547,7 @@ func (n *node) forEachAtParallel(ctx context.Context, bs cbor.IpldStore, bitWidt
 		grp.Go(func() error {
 			for childrenList := range feed {
 				linksToVisit := make([]cid.Cid, 0, len(childrenList.children))
-				linksToVisitContext := make(map[cid.Cid]descentContext, len(childrenList.children))
+				linksToVisitContext := make([]descentContext, 0, len(childrenList.children))
 				cachedNodes := make([]*node, 0, len(childrenList.children))
 				cachedNodesContext := make([]descentContext, 0, len(childrenList.children))
 				for _, child := range childrenList.children {
@@ -557,7 +556,7 @@ func (n *node) forEachAtParallel(ctx context.Context, bs cbor.IpldStore, bitWidt
 						cachedNodesContext = append(cachedNodesContext, child.descentContext)
 					} else {
 						linksToVisit = append(linksToVisit, child.link.cid)
-						linksToVisitContext[child.link.cid] = child.descentContext
+						linksToVisitContext = append(linksToVisitContext, child.descentContext)
 					}
 				}
 
@@ -577,15 +576,15 @@ func (n *node) forEachAtParallel(ctx context.Context, bs cbor.IpldStore, bitWidt
 					if cursor.Err != nil {
 						return cursor.Err
 					}
-					internalNextNode, ok := nodes[cursor.Index].(internal.Node)
+					internalNextNode, ok := nodes[cursor.Index].(*internal.Node)
 					if !ok {
 						return fmt.Errorf("expected node, got %T", nodes[cursor.Index])
 					}
-					nextNode, err := newNode(internalNextNode, bitWidth, false, height == 0)
+					nextNode, err := newNode(*internalNextNode, bitWidth, false, linksToVisitContext[cursor.Index].height == 0)
 					if err != nil {
 						return err
 					}
-					nextChildren, err := nextNode.walkChildren(ctx, bitWidth, linksToVisitContext[cursor.CID].height, start, linksToVisitContext[cursor.CID].offset, cb)
+					nextChildren, err := nextNode.walkChildren(ctx, bitWidth, linksToVisitContext[cursor.Index].height, start, linksToVisitContext[cursor.Index].offset, cb)
 					if err != nil {
 						return err
 					}
@@ -681,7 +680,7 @@ func (n *node) forEachAtParallelTracked(ctx context.Context, bs cbor.IpldStore, 
 		grp.Go(func() error {
 			for childrenList := range feed {
 				linksToVisit := make([]cid.Cid, 0, len(childrenList.children))
-				linksToVisitContext := make(map[cid.Cid]trackedDescentContext, len(childrenList.children))
+				linksToVisitContext := make([]trackedDescentContext, 0, len(childrenList.children))
 				cachedNodes := make([]*node, 0, len(childrenList.children))
 				cachedNodesContext := make([]trackedDescentContext, 0, len(childrenList.children))
 				for _, child := range childrenList.children {
@@ -690,7 +689,7 @@ func (n *node) forEachAtParallelTracked(ctx context.Context, bs cbor.IpldStore, 
 						cachedNodesContext = append(cachedNodesContext, child.trackedDescentContext)
 					} else {
 						linksToVisit = append(linksToVisit, child.link.cid)
-						linksToVisitContext[child.link.cid] = child.trackedDescentContext
+						linksToVisitContext = append(linksToVisitContext, child.trackedDescentContext)
 					}
 				}
 
@@ -710,15 +709,15 @@ func (n *node) forEachAtParallelTracked(ctx context.Context, bs cbor.IpldStore, 
 					if cursor.Err != nil {
 						return cursor.Err
 					}
-					internalNextNode, ok := nodes[cursor.Index].(internal.Node)
+					internalNextNode, ok := nodes[cursor.Index].(*internal.Node)
 					if !ok {
 						return fmt.Errorf("expected node, got %T", nodes[cursor.Index])
 					}
-					nextNode, err := newNode(internalNextNode, bitWidth, false, height == 0)
+					nextNode, err := newNode(*internalNextNode, bitWidth, false, linksToVisitContext[cursor.Index].height == 0)
 					if err != nil {
 						return err
 					}
-					nextChildren, err := nextNode.walkChildrenTracked(ctx, bitWidth, trail, linksToVisitContext[cursor.CID].height, start, linksToVisitContext[cursor.CID].offset, cb)
+					nextChildren, err := nextNode.walkChildrenTracked(ctx, bitWidth, trail, linksToVisitContext[cursor.Index].height, start, linksToVisitContext[cursor.Index].offset, cb)
 					if err != nil {
 						return err
 					}
@@ -814,7 +813,7 @@ func (n *node) forEachAtParallelTrackedWithNodeSink(ctx context.Context, bs cbor
 		grp.Go(func() error {
 			for childrenList := range feed {
 				linksToVisit := make([]cid.Cid, 0, len(childrenList.children))
-				linksToVisitContext := make(map[cid.Cid]trackedDescentContext, len(childrenList.children))
+				linksToVisitContext := make([]trackedDescentContext, 0, len(childrenList.children))
 				cachedNodes := make([]*node, 0, len(childrenList.children))
 				cachedNodesContext := make([]trackedDescentContext, 0, len(childrenList.children))
 				for _, child := range childrenList.children {
@@ -823,7 +822,7 @@ func (n *node) forEachAtParallelTrackedWithNodeSink(ctx context.Context, bs cbor
 						cachedNodesContext = append(cachedNodesContext, child.trackedDescentContext)
 					} else {
 						linksToVisit = append(linksToVisit, child.link.cid)
-						linksToVisitContext[child.link.cid] = child.trackedDescentContext
+						linksToVisitContext = append(linksToVisitContext, child.trackedDescentContext)
 					}
 				}
 
@@ -843,15 +842,15 @@ func (n *node) forEachAtParallelTrackedWithNodeSink(ctx context.Context, bs cbor
 					if cursor.Err != nil {
 						return cursor.Err
 					}
-					internalNextNode, ok := nodes[cursor.Index].(internal.Node)
+					internalNextNode, ok := nodes[cursor.Index].(*internal.Node)
 					if !ok {
 						return fmt.Errorf("expected node, got %T", nodes[cursor.Index])
 					}
-					nextNode, err := newNode(internalNextNode, bitWidth, false, height == 0)
+					nextNode, err := newNode(*internalNextNode, bitWidth, false, linksToVisitContext[cursor.Index].height == 0)
 					if err != nil {
 						return err
 					}
-					nextChildren, err := nextNode.walkChildrenTrackedWithNodeSink(ctx, bitWidth, trail, linksToVisitContext[cursor.CID].height, start, linksToVisitContext[cursor.CID].offset, b, sink, cb)
+					nextChildren, err := nextNode.walkChildrenTrackedWithNodeSink(ctx, bitWidth, trail, linksToVisitContext[cursor.Index].height, start, linksToVisitContext[cursor.Index].offset, b, sink, cb)
 					if err != nil {
 						return err
 					}

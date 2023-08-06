@@ -359,6 +359,7 @@ func TestForEachWithoutFlush(t *testing.T) {
 			require.NoError(t, err)
 			set1 := make(map[uint64]struct{})
 			set2 := make(map[uint64]struct{})
+			set3 := make(map[uint64]struct{})
 			for _, val := range vals {
 				err := amt.Set(ctx, val, cborstr(""))
 				require.NoError(t, err)
@@ -374,7 +375,7 @@ func TestForEachWithoutFlush(t *testing.T) {
 			assert.Equal(t, make(map[uint64]struct{}), set1)
 
 			// ensure it still works after flush
-			_, err = amt.Flush(ctx)
+			c, err := amt.Flush(ctx)
 			require.NoError(t, err)
 
 			amt.ForEach(ctx, func(u uint64, deferred *cbg.Deferred) error {
@@ -382,6 +383,15 @@ func TestForEachWithoutFlush(t *testing.T) {
 				return nil
 			})
 			assert.Equal(t, make(map[uint64]struct{}), set2)
+
+			// ensure that it works with a loaded AMT
+			loadedAMT, err := LoadAMT(ctx, bs, c, opts...)
+			err = loadedAMT.ForEach(ctx, func(u uint64, deferred *cbg.Deferred) error {
+				delete(set3, u)
+				return nil
+			})
+			require.NoError(t, err)
+			assert.Equal(t, make(map[uint64]struct{}), set3)
 		}
 	})
 }
@@ -401,12 +411,14 @@ func TestForEachParallel(t *testing.T) {
 			require.NoError(t, err)
 			set1 := make(map[uint64]struct{})
 			set2 := make(map[uint64]struct{})
+			set3 := make(map[uint64]struct{})
 			for _, val := range vals {
 				err := amt.Set(ctx, val, cborstr(""))
 				require.NoError(t, err)
 
 				set1[val] = struct{}{}
 				set2[val] = struct{}{}
+				set3[val] = struct{}{}
 			}
 			err = amt.ForEachParallel(ctx, 16, func(u uint64, deferred *cbg.Deferred) error {
 				delete(set1, u)
@@ -416,7 +428,7 @@ func TestForEachParallel(t *testing.T) {
 			assert.Equal(t, make(map[uint64]struct{}), set1)
 
 			// ensure it still works after flush
-			_, err = amt.Flush(ctx)
+			c, err := amt.Flush(ctx)
 			require.NoError(t, err)
 
 			err = amt.ForEachParallel(ctx, 16, func(u uint64, deferred *cbg.Deferred) error {
@@ -425,6 +437,15 @@ func TestForEachParallel(t *testing.T) {
 			})
 			require.NoError(t, err)
 			assert.Equal(t, make(map[uint64]struct{}), set2)
+
+			// ensure that it works with a loaded AMT
+			loadedAMT, err := LoadAMT(ctx, bs, c, opts...)
+			err = loadedAMT.ForEachParallel(ctx, 16, func(u uint64, deferred *cbg.Deferred) error {
+				delete(set3, u)
+				return nil
+			})
+			require.NoError(t, err)
+			assert.Equal(t, make(map[uint64]struct{}), set3)
 		}
 	})
 }
