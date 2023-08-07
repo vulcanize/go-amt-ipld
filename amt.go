@@ -542,9 +542,11 @@ func (n *Node) forEachAtParallel(ctx context.Context, bs cbor.IpldStore, height 
 					if child.link.cached != nil {
 						cachedNodes = append(cachedNodes, child.link.cached)
 						cachedNodesContext = append(cachedNodesContext, child.descentContext)
-					} else {
+					} else if child.link.cid != cid.Undef {
 						linksToVisit = append(linksToVisit, child.link.cid)
 						linksToVisitContext = append(linksToVisitContext, child.descentContext)
+					} else {
+						return fmt.Errorf("invalid child")
 					}
 				}
 
@@ -671,9 +673,11 @@ func (n *Node) forEachAtParallelTracked(ctx context.Context, bs cbor.IpldStore, 
 					if child.link.cached != nil {
 						cachedNodes = append(cachedNodes, child.link.cached)
 						cachedNodesContext = append(cachedNodesContext, child.descentContextTracked)
-					} else {
+					} else if child.link.cid != cid.Undef {
 						linksToVisit = append(linksToVisit, child.link.cid)
 						linksToVisitContext = append(linksToVisitContext, child.descentContextTracked)
+					} else {
+						return fmt.Errorf("invalid child")
 					}
 				}
 
@@ -800,9 +804,11 @@ func (n *Node) forEachAtParallelTrackedWithNodeSink(ctx context.Context, bs cbor
 					if child.link.cached != nil {
 						cachedNodes = append(cachedNodes, child.link.cached)
 						cachedNodesContext = append(cachedNodesContext, child.descentContextTracked)
-					} else {
+					} else if child.link.cid != cid.Undef {
 						linksToVisit = append(linksToVisit, child.link.cid)
 						linksToVisitContext = append(linksToVisitContext, child.descentContextTracked)
+					} else {
+						return fmt.Errorf("invalid child")
 					}
 				}
 
