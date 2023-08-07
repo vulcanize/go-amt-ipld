@@ -347,9 +347,172 @@ func (n *node) forEachAt(ctx context.Context, bs cbor.IpldStore, bitWidth uint, 
 	return nil
 }
 
+// Recursive implementation backing ForEach and ForEachAt. Performs a
+// depth-first walk of the tree, beginning at the 'start' index. The 'offset'
+// argument helps us locate the lateral position of the current node so we can
+// figure out the appropriate 'index', since indexes are not stored with values
+// and can only be determined by knowing how far a leaf node is removed from
+// the left-most leaf node.
+// This method also provides the trail of indices at each height/level in the way to the current node, which can be used to formulate a selector suffixes
+func (n *node) forEachAtTracked(ctx context.Context, bs cbor.IpldStore, trail []int, bitWidth uint, height int, start, offset uint64, cb func(uint64, *cbg.Deferred, []int) error) error {
+	l := len(trail)
+	if height == 0 {
+		// height=0 means we're at leaf nodes and get to use our callback
+		for i, v := range n.values {
+			if v != nil {
+				subTrail := make([]int, l, l+1)
+				copy(subTrail, trail)
+				subTrail = append(subTrail, i)
+
+				ix := offset + uint64(i)
+				if ix < start {
+					// if we're here, 'start' is probably somewhere in the
+					// middle of this node's elements
+					continue
+				}
+
+				// use 'offset' to determine the actual index for this element, it
+				// tells us how distant we are from the left-most leaf node
+				if err := cb(ix, v, subTrail); err != nil {
+					return err
+				}
+			}
+		}
+
+		return nil
+	}
+
+	subCount := nodesForHeight(bitWidth, height)
+	for i, ln := range n.links {
+		if ln == nil {
+			continue
+		}
+
+		subTrail := make([]int, l, l+1)
+		copy(subTrail, trail)
+		subTrail = append(subTrail, i)
+
+		// 'offs' tells us the index of the left-most element of the subtree defined
+		// by 'sub'
+		offs := offset + (uint64(i) * subCount)
+		nextOffs := offs + subCount
+		// nextOffs > offs checks for overflow at MaxIndex (where the next offset wraps back
+		// to 0).
+		if nextOffs >= offs && start >= nextOffs {
+			// if we're here, 'start' lets us skip this entire sub-tree
+			continue
+		}
+
+		subn, err := ln.load(ctx, bs, bitWidth, height-1)
+		if err != nil {
+			return err
+		}
+
+		// recurse into the child node, providing 'offs' to tell it where it's
+		// located in the tree
+		if err := subn.forEachAtTracked(ctx, bs, subTrail, bitWidth, height-1, start, offs, cb); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// b *bytes.Buffer, sink func(node ipld.Node) error
+// Recursive implementation backing ForEach and ForEachAt. Performs a
+// depth-first walk of the tree, beginning at the 'start' index. The 'offset'
+// argument helps us locate the lateral position of the current node so we can
+// figure out the appropriate 'index', since indexes are not stored with values
+// and can only be determined by knowing how far a leaf node is removed from
+// the left-most leaf node.
+// This method also provides the trail of indices at each height/level in the way to the current node, which can be used to formulate a selector suffixes
+func (n *node) forEachAtTrackedWithNodeSink(ctx context.Context, bs cbor.IpldStore, trail []int, bitWidth uint, height int, start, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) error {
+	if sink != nil {
+		if b == nil {
+			b = bytes.NewBuffer(nil)
+		}
+		b.Reset()
+		internalNode, err := n.compact(ctx, bitWidth, height)
+		if err != nil {
+			return err
+		}
+		if err := internalNode.MarshalCBOR(b); err != nil {
+			return err
+		}
+		if err := sink.UnmarshalCBOR(b); err != nil {
+			return err
+		}
+	}
+	l := len(trail)
+	if height == 0 {
+		// height=0 means we're at leaf nodes and get to use our callback
+		for i, v := range n.values {
+			if v != nil {
+				subTrail := make([]int, l, l+1)
+				copy(subTrail, trail)
+				subTrail = append(subTrail, i)
+
+				ix := offset + uint64(i)
+				if ix < start {
+					// if we're here, 'start' is probably somewhere in the
+					// middle of this node's elements
+					continue
+				}
+
+				// use 'offset' to determine the actual index for this element, it
+				// tells us how distant we are from the left-most leaf node
+				if err := cb(ix, v, subTrail); err != nil {
+					return err
+				}
+			}
+		}
+
+		return nil
+	}
+
+	subCount := nodesForHeight(bitWidth, height)
+	for i, ln := range n.links {
+		if ln == nil {
+			continue
+		}
+
+		subTrail := make([]int, l, l+1)
+		copy(subTrail, trail)
+		subTrail = append(subTrail, i)
+
+		// 'offs' tells us the index of the left-most element of the subtree defined
+		// by 'sub'
+		offs := offset + (uint64(i) * subCount)
+		nextOffs := offs + subCount
+		// nextOffs > offs checks for overflow at MaxIndex (where the next offset wraps back
+		// to 0).
+		if nextOffs >= offs && start >= nextOffs {
+			// if we're here, 'start' lets us skip this entire sub-tree
+			continue
+		}
+
+		subn, err := ln.load(ctx, bs, bitWidth, height-1)
+		if err != nil {
+			return err
+		}
+
+		// recurse into the child node, providing 'offs' to tell it where it's
+		// located in the tree
+		if err := subn.forEachAtTracked(ctx, bs, subTrail, bitWidth, height-1, start, offs, cb); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 type descentContext struct {
 	height int
 	offset uint64
+}
+
+type trackedDescentContext struct {
+	height int
+	offset uint64
+	trail  []int
 }
 
 type child struct {
@@ -357,8 +520,17 @@ type child struct {
 	descentContext
 }
 
+type trackedChild struct {
+	link *link
+	trackedDescentContext
+}
+
 type listChildren struct {
 	children []child
+}
+
+type listChildrenTracked struct {
+	children []trackedChild
 }
 
 func (n *node) forEachAtParallel(ctx context.Context, bs cbor.IpldStore, bitWidth uint, height int, start, offset uint64, cb func(uint64, *cbg.Deferred) error, concurrency int) error {
@@ -491,6 +663,408 @@ dispatcherLoop:
 	}
 	close(feed)
 	return grp.Wait()
+}
+
+func (n *node) forEachAtParallelTracked(ctx context.Context, bs cbor.IpldStore, trail []int, bitWidth uint, height int, start, offset uint64, cb func(uint64, *cbg.Deferred, []int) error, concurrency int) error {
+	// Setup synchronization
+	grp, errGrpCtx := errgroup.WithContext(ctx)
+
+	// Input and output queues for workers.
+	feed := make(chan *listChildrenTracked)
+	out := make(chan *listChildrenTracked)
+	done := make(chan struct{})
+
+	for i := 0; i < concurrency; i++ {
+		grp.Go(func() error {
+			for childrenList := range feed {
+				linksToVisit := make([]cid.Cid, 0, len(childrenList.children))
+				linksToVisitContext := make([]trackedDescentContext, 0, len(childrenList.children))
+				cachedNodes := make([]*node, 0, len(childrenList.children))
+				cachedNodesContext := make([]trackedDescentContext, 0, len(childrenList.children))
+				for _, child := range childrenList.children {
+					if child.link.cached != nil {
+						cachedNodes = append(cachedNodes, child.link.cached)
+						cachedNodesContext = append(cachedNodesContext, child.trackedDescentContext)
+					} else {
+						linksToVisit = append(linksToVisit, child.link.cid)
+						linksToVisitContext = append(linksToVisitContext, child.trackedDescentContext)
+					}
+				}
+
+				dserv := bs.(cbor.IpldGetManyStore)
+				nodes := make([]interface{}, len(linksToVisit))
+				for j := 0; j < len(linksToVisit); j++ {
+					nodes[j] = new(internal.Node)
+				}
+				cursorChan, missingCIDs, err := dserv.GetMany(errGrpCtx, linksToVisit, nodes)
+				if err != nil {
+					return err
+				}
+				if len(missingCIDs) != 0 {
+					return fmt.Errorf("GetMany returned an incomplete result set. The set is missing these CIDs: %+v", missingCIDs)
+				}
+				for cursor := range cursorChan {
+					if cursor.Err != nil {
+						return cursor.Err
+					}
+					internalNextNode, ok := nodes[cursor.Index].(*internal.Node)
+					if !ok {
+						return fmt.Errorf("expected node, got %T", nodes[cursor.Index])
+					}
+					nextNode, err := newNode(*internalNextNode, bitWidth, false, linksToVisitContext[cursor.Index].height == 0)
+					if err != nil {
+						return err
+					}
+					nextChildren, err := nextNode.walkChildrenTracked(ctx, bitWidth, linksToVisitContext[cursor.Index].trail, linksToVisitContext[cursor.Index].height, start, linksToVisitContext[cursor.Index].offset, cb)
+					if err != nil {
+						return err
+					}
+					select {
+					case <-errGrpCtx.Done():
+						return nil
+					default:
+						if nextChildren != nil {
+							out <- nextChildren
+						}
+					}
+				}
+				for j, cachedNode := range cachedNodes {
+					nextChildren, err := cachedNode.walkChildrenTracked(ctx, bitWidth, cachedNodesContext[j].trail, cachedNodesContext[j].height, start, cachedNodesContext[j].offset, cb)
+					if err != nil {
+						return err
+					}
+					select {
+					case <-errGrpCtx.Done():
+						return nil
+					default:
+						if nextChildren != nil {
+							out <- nextChildren
+						}
+					}
+				}
+
+				select {
+				case done <- struct{}{}:
+				case <-errGrpCtx.Done():
+				}
+			}
+			return nil
+		})
+	}
+
+	send := feed
+	var todoQueue []*listChildrenTracked
+	var inProgress int
+
+	// start the walk
+	children, err := n.walkChildrenTracked(ctx, bitWidth, trail, height, start, offset, cb)
+	// if we hit an error or there are no children, then we're done
+	if err != nil || children == nil {
+		close(feed)
+		grp.Wait()
+		return err
+	}
+	next := children
+
+dispatcherLoop:
+	for {
+		select {
+		case send <- next:
+			inProgress++
+			if len(todoQueue) > 0 {
+				next = todoQueue[0]
+				todoQueue = todoQueue[1:]
+			} else {
+				next = nil
+				send = nil
+			}
+		case <-done:
+			inProgress--
+			if inProgress == 0 && next == nil {
+				break dispatcherLoop
+			}
+		case nextNodes := <-out:
+			if next == nil {
+				next = nextNodes
+				send = feed
+			} else {
+				todoQueue = append(todoQueue, nextNodes)
+			}
+		case <-errGrpCtx.Done():
+			break dispatcherLoop
+		}
+	}
+	close(feed)
+	return grp.Wait()
+}
+
+func (n *node) forEachAtParallelTrackedWithNodeSink(ctx context.Context, bs cbor.IpldStore, trail []int, bitWidth uint, height int, start, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error, concurrency int) error {
+	// Setup synchronization
+	grp, errGrpCtx := errgroup.WithContext(ctx)
+
+	// Input and output queues for workers.
+	feed := make(chan *listChildrenTracked)
+	out := make(chan *listChildrenTracked)
+	done := make(chan struct{})
+
+	for i := 0; i < concurrency; i++ {
+		grp.Go(func() error {
+			for childrenList := range feed {
+				linksToVisit := make([]cid.Cid, 0, len(childrenList.children))
+				linksToVisitContext := make([]trackedDescentContext, 0, len(childrenList.children))
+				cachedNodes := make([]*node, 0, len(childrenList.children))
+				cachedNodesContext := make([]trackedDescentContext, 0, len(childrenList.children))
+				for _, child := range childrenList.children {
+					if child.link.cached != nil {
+						cachedNodes = append(cachedNodes, child.link.cached)
+						cachedNodesContext = append(cachedNodesContext, child.trackedDescentContext)
+					} else {
+						linksToVisit = append(linksToVisit, child.link.cid)
+						linksToVisitContext = append(linksToVisitContext, child.trackedDescentContext)
+					}
+				}
+
+				dserv := bs.(cbor.IpldGetManyStore)
+				nodes := make([]interface{}, len(linksToVisit))
+				for j := 0; j < len(linksToVisit); j++ {
+					nodes[j] = new(internal.Node)
+				}
+				cursorChan, missingCIDs, err := dserv.GetMany(errGrpCtx, linksToVisit, nodes)
+				if err != nil {
+					return err
+				}
+				if len(missingCIDs) != 0 {
+					return fmt.Errorf("GetMany returned an incomplete result set. The set is missing these CIDs: %+v", missingCIDs)
+				}
+				for cursor := range cursorChan {
+					if cursor.Err != nil {
+						return cursor.Err
+					}
+					internalNextNode, ok := nodes[cursor.Index].(*internal.Node)
+					if !ok {
+						return fmt.Errorf("expected node, got %T", nodes[cursor.Index])
+					}
+					nextNode, err := newNode(*internalNextNode, bitWidth, false, linksToVisitContext[cursor.Index].height == 0)
+					if err != nil {
+						return err
+					}
+					nextChildren, err := nextNode.walkChildrenTrackedWithNodeSink(ctx, bitWidth, linksToVisitContext[cursor.Index].trail, linksToVisitContext[cursor.Index].height, start, linksToVisitContext[cursor.Index].offset, b, sink, cb)
+					if err != nil {
+						return err
+					}
+					select {
+					case <-errGrpCtx.Done():
+						return nil
+					default:
+						if nextChildren != nil {
+							out <- nextChildren
+						}
+					}
+				}
+				for j, cachedNode := range cachedNodes {
+					nextChildren, err := cachedNode.walkChildrenTrackedWithNodeSink(ctx, bitWidth, cachedNodesContext[j].trail, cachedNodesContext[j].height, start, cachedNodesContext[j].offset, b, sink, cb)
+					if err != nil {
+						return err
+					}
+					select {
+					case <-errGrpCtx.Done():
+						return nil
+					default:
+						if nextChildren != nil {
+							out <- nextChildren
+						}
+					}
+				}
+
+				select {
+				case done <- struct{}{}:
+				case <-errGrpCtx.Done():
+				}
+			}
+			return nil
+		})
+	}
+
+	send := feed
+	var todoQueue []*listChildrenTracked
+	var inProgress int
+
+	// start the walk
+	children, err := n.walkChildrenTrackedWithNodeSink(ctx, bitWidth, trail, height, start, offset, b, sink, cb)
+	// if we hit an error or there are no children, then we're done
+	if err != nil || children == nil {
+		close(feed)
+		grp.Wait()
+		return err
+	}
+	next := children
+
+dispatcherLoop:
+	for {
+		select {
+		case send <- next:
+			inProgress++
+			if len(todoQueue) > 0 {
+				next = todoQueue[0]
+				todoQueue = todoQueue[1:]
+			} else {
+				next = nil
+				send = nil
+			}
+		case <-done:
+			inProgress--
+			if inProgress == 0 && next == nil {
+				break dispatcherLoop
+			}
+		case nextNodes := <-out:
+			if next == nil {
+				next = nextNodes
+				send = feed
+			} else {
+				todoQueue = append(todoQueue, nextNodes)
+			}
+		case <-errGrpCtx.Done():
+			break dispatcherLoop
+		}
+	}
+	close(feed)
+	return grp.Wait()
+}
+
+func (n *node) walkChildrenTracked(ctx context.Context, bitWidth uint, trail []int, height int, start, offset uint64, cb func(uint64, *cbg.Deferred, []int) error) (*listChildrenTracked, error) {
+	l := len(trail)
+
+	if height == 0 {
+		// height=0 means we're at leaf nodes and get to use our callback
+		for i, v := range n.values {
+			if v != nil {
+				subTrail := make([]int, l, l+1)
+				copy(subTrail, trail)
+				subTrail = append(subTrail, i)
+
+				ix := offset + uint64(i)
+				if ix < start {
+					// if we're here, 'start' is probably somewhere in the
+					// middle of this node's elements
+					continue
+				}
+
+				// use 'offset' to determine the actual index for this element, it
+				// tells us how distant we are from the left-most leaf node
+				if err := cb(offset+uint64(i), v, subTrail); err != nil {
+					return nil, err
+				}
+			}
+		}
+
+		return nil, nil
+	}
+	children := make([]trackedChild, 0, len(n.links))
+
+	subCount := nodesForHeight(bitWidth, height)
+	for i, ln := range n.links {
+		if ln == nil {
+			continue
+		}
+
+		subTrail := make([]int, l, l+1)
+		copy(subTrail, trail)
+		subTrail = append(subTrail, i)
+
+		// 'offs' tells us the index of the left-most element of the subtree defined
+		// by 'sub'
+		offs := offset + (uint64(i) * subCount)
+		nextOffs := offs + subCount
+		// nextOffs > offs checks for overflow at MaxIndex (where the next offset wraps back
+		// to 0).
+		if nextOffs >= offs && start >= nextOffs {
+			// if we're here, 'start' lets us skip this entire sub-tree
+			continue
+		}
+		children = append(children, trackedChild{ln, trackedDescentContext{
+			height: height - 1,
+			offset: offs,
+			trail:  subTrail,
+		}})
+	}
+
+	return &listChildrenTracked{children: children}, nil
+}
+
+func (n *node) walkChildrenTrackedWithNodeSink(ctx context.Context, bitWidth uint, trail []int, height int, start, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) (*listChildrenTracked, error) {
+	if sink != nil {
+		if b == nil {
+			b = bytes.NewBuffer(nil)
+		}
+		b.Reset()
+		internalNode, err := n.compact(ctx, bitWidth, height)
+		if err != nil {
+			return nil, err
+		}
+		if err := internalNode.MarshalCBOR(b); err != nil {
+			return nil, err
+		}
+		if err := sink.UnmarshalCBOR(b); err != nil {
+			return nil, err
+		}
+	}
+	l := len(trail)
+
+	if height == 0 {
+		// height=0 means we're at leaf nodes and get to use our callback
+		for i, v := range n.values {
+			if v != nil {
+				subTrail := make([]int, l, l+1)
+				copy(subTrail, trail)
+				subTrail = append(subTrail, i)
+
+				ix := offset + uint64(i)
+				if ix < start {
+					// if we're here, 'start' is probably somewhere in the
+					// middle of this node's elements
+					continue
+				}
+
+				// use 'offset' to determine the actual index for this element, it
+				// tells us how distant we are from the left-most leaf node
+				if err := cb(offset+uint64(i), v, subTrail); err != nil {
+					return nil, err
+				}
+			}
+		}
+
+		return nil, nil
+	}
+	children := make([]trackedChild, 0, len(n.links))
+
+	subCount := nodesForHeight(bitWidth, height)
+	for i, ln := range n.links {
+		if ln == nil {
+			continue
+		}
+
+		subTrail := make([]int, l, l+1)
+		copy(subTrail, trail)
+		subTrail = append(subTrail, i)
+
+		// 'offs' tells us the index of the left-most element of the subtree defined
+		// by 'sub'
+		offs := offset + (uint64(i) * subCount)
+		nextOffs := offs + subCount
+		// nextOffs > offs checks for overflow at MaxIndex (where the next offset wraps back
+		// to 0).
+		if nextOffs >= offs && start >= nextOffs {
+			// if we're here, 'start' lets us skip this entire sub-tree
+			continue
+		}
+		children = append(children, trackedChild{ln, trackedDescentContext{
+			height: height - 1,
+			offset: offs,
+			trail:  subTrail,
+		}})
+	}
+
+	return &listChildrenTracked{children: children}, nil
 }
 
 func (n *node) walkChildren(ctx context.Context, bitWidth uint, height int, start, offset uint64, cb func(uint64, *cbg.Deferred) error) (*listChildren, error) {
@@ -679,6 +1253,37 @@ func (n *node) flush(ctx context.Context, bs cbor.IpldStore, bitWidth uint, heig
 
 			ln.cid = c
 			ln.dirty = false
+		}
+		nd.Links = append(nd.Links, ln.cid)
+		// set the bit in the bitmap for this position to indicate its presence
+		nd.Bmap[i/8] |= 1 << (uint(i) % 8)
+	}
+
+	return nd, nil
+}
+
+// compact converts a node into its internal.Node representation
+func (n *node) compact(ctx context.Context, bitWidth uint, height int) (*internal.Node, error) {
+	nd := new(internal.Node)
+	nd.Bmap = make([]byte, bmapBytes(bitWidth))
+
+	if height == 0 {
+		// leaf node, we're storing values in this node
+		for i, val := range n.values {
+			if val == nil {
+				continue
+			}
+			nd.Values = append(nd.Values, val)
+			// set the bit in the bitmap for this position to indicate its presence
+			nd.Bmap[i/8] |= 1 << (uint(i) % 8)
+		}
+		return nd, nil
+	}
+
+	// non-leaf node, we're only storing Links in this node
+	for i, ln := range n.links {
+		if ln == nil {
+			continue
 		}
 		nd.Links = append(nd.Links, ln.cid)
 		// set the bit in the bitmap for this position to indicate its presence

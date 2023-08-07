@@ -315,8 +315,30 @@ func (r *Root) ForEach(ctx context.Context, cb func(uint64, *cbg.Deferred) error
 	return r.node.forEachAt(ctx, r.store, r.bitWidth, r.height, 0, 0, cb)
 }
 
+// ForEachTracked iterates over the entire AMT and calls the cb function for each
+// entry found in the leaf nodes. The callback will receive the index and the
+// value of each element.
+func (r *Root) ForEachTracked(ctx context.Context, cb func(uint64, *cbg.Deferred, []int) error) error {
+	return r.node.forEachAtTracked(ctx, r.store, []int{}, r.bitWidth, r.height, 0, 0, cb)
+}
+
+// ForEachTrackedWithNodeSink iterates over the entire AMT and calls the cb function for each
+// entry found in the leaf nodes. The callback will receive the index and the
+// value of each element.
+func (r *Root) ForEachTrackedWithNodeSink(ctx context.Context, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) error {
+	return r.node.forEachAtTrackedWithNodeSink(ctx, r.store, []int{}, r.bitWidth, r.height, 0, 0, b, sink, cb)
+}
+
 func (r *Root) ForEachParallel(ctx context.Context, concurrency int, cb func(uint64, *cbg.Deferred) error) error {
 	return r.node.forEachAtParallel(ctx, r.store, r.bitWidth, r.height, 0, 0, cb, concurrency)
+}
+
+func (r *Root) ForEachParallelTracked(ctx context.Context, concurrency int, cb func(uint64, *cbg.Deferred, []int) error) error {
+	return r.node.forEachAtParallelTracked(ctx, r.store, []int{}, r.bitWidth, r.height, 0, 0, cb, concurrency)
+}
+
+func (r *Root) ForEachParallelTrackWithNodeSink(ctx context.Context, concurrency int, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) error {
+	return r.node.forEachAtParallelTrackedWithNodeSink(ctx, r.store, []int{}, r.bitWidth, r.height, 0, 0, b, sink, cb, concurrency)
 }
 
 // ForEachAt iterates over the AMT beginning from the given start index. See
@@ -325,8 +347,28 @@ func (r *Root) ForEachAt(ctx context.Context, start uint64, cb func(uint64, *cbg
 	return r.node.forEachAt(ctx, r.store, r.bitWidth, r.height, start, 0, cb)
 }
 
+// ForEachAtTracked iterates over the AMT beginning from the given start index. See
+// ForEach for more details.
+func (r *Root) ForEachAtTracked(ctx context.Context, start uint64, cb func(uint64, *cbg.Deferred, []int) error) error {
+	return r.node.forEachAtTracked(ctx, r.store, []int{}, r.bitWidth, r.height, start, 0, cb)
+}
+
+// ForEachAtTrackedWithNodeSink iterates over the AMT beginning from the given start index. See
+// ForEach for more details.
+func (r *Root) ForEachAtTrackedWithNodeSink(ctx context.Context, start uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) error {
+	return r.node.forEachAtTrackedWithNodeSink(ctx, r.store, []int{}, r.bitWidth, r.height, start, 0, b, sink, cb)
+}
+
 func (r *Root) ForEachAtParallel(ctx context.Context, start uint64, concurrency int, cb func(uint64, *cbg.Deferred) error) error {
 	return r.node.forEachAtParallel(ctx, r.store, r.bitWidth, r.height, start, 0, cb, concurrency)
+}
+
+func (r *Root) ForEachAtParallelTracked(ctx context.Context, start uint64, concurrency int, cb func(uint64, *cbg.Deferred, []int) error) error {
+	return r.node.forEachAtParallelTracked(ctx, r.store, []int{}, r.bitWidth, r.height, start, 0, cb, concurrency)
+}
+
+func (r *Root) ForEachAtParallelTrackedWithNodeSink(ctx context.Context, start uint64, concurrency int, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) error {
+	return r.node.forEachAtParallelTrackedWithNodeSink(ctx, r.store, []int{}, r.bitWidth, r.height, start, 0, b, sink, cb, concurrency)
 }
 
 // FirstSetIndex finds the lowest index in this AMT that has a value set for
