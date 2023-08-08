@@ -874,7 +874,7 @@ func (n *Node) forEachAtParallelTrackedWithNodeSink(ctx context.Context, bs cbor
 	var inProgress int
 
 	// start the walk
-	children, err := n.walkChildrenTracked(ctx, trail, height, start, offset, cb)
+	children, err := n.walkChildrenTrackedWithNodeSink(ctx, trail, height, start, offset, b, sink, cb)
 	// if we hit an error or there are no children, then we're done
 	if err != nil || children == nil {
 		close(feed)
@@ -1034,7 +1034,7 @@ func (n *Node) walkChildrenTracked(ctx context.Context, trail []int, height int,
 			descentContextTracked: descentContextTracked{
 				height: height - 1,
 				offset: offs,
-				trail:  trail,
+				trail:  subTrail,
 			},
 		})
 	}
@@ -1115,7 +1115,7 @@ func (n *Node) walkChildrenTrackedWithNodeSink(ctx context.Context, trail []int,
 			descentContextTracked: descentContextTracked{
 				height: height - 1,
 				offset: offs,
-				trail:  trail,
+				trail:  subTrail,
 			},
 		})
 	}
