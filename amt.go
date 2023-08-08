@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"math/bits"
 
+	"golang.org/x/sync/errgroup"
+
 	cid "github.com/ipfs/go-cid"
 	cbor "github.com/ipfs/go-ipld-cbor"
 	logging "github.com/ipfs/go-log"
@@ -256,8 +258,48 @@ func (r *Root) ForEach(ctx context.Context, cb func(uint64, *cbg.Deferred) error
 	return r.Node.forEachAt(ctx, r.store, int(r.Height), 0, 0, cb)
 }
 
+func (r *Root) ForEachTracked(ctx context.Context, cb func(uint64, *cbg.Deferred, []int) error) error {
+	return r.Node.forEachAtTracked(ctx, r.store, []int{}, int(r.Height), 0, 0, cb)
+}
+
+func (r *Root) ForEachTrackedWithNodeSink(ctx context.Context, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) error {
+	return r.Node.forEachAtTrackedWithNodeSink(ctx, r.store, []int{}, int(r.Height), 0, 0, b, sink, cb)
+}
+
+func (r *Root) ForEachParallel(ctx context.Context, concurrency int, cb func(uint64, *cbg.Deferred) error) error {
+	return r.Node.forEachAtParallel(ctx, r.store, int(r.Height), 0, 0, cb, concurrency)
+}
+
+func (r *Root) ForEachParallelTracked(ctx context.Context, concurrency int, cb func(uint64, *cbg.Deferred, []int) error) error {
+	return r.Node.forEachAtParallelTracked(ctx, r.store, []int{}, int(r.Height), 0, 0, cb, concurrency)
+}
+
+func (r *Root) ForEachParallelTrakcedWithNodeSink(ctx context.Context, concurrency int, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) error {
+	return r.Node.forEachAtParallelTrackedWithNodeSink(ctx, r.store, []int{}, int(r.Height), 0, 0, b, sink, cb, concurrency)
+}
+
 func (r *Root) ForEachAt(ctx context.Context, start uint64, cb func(uint64, *cbg.Deferred) error) error {
 	return r.Node.forEachAt(ctx, r.store, int(r.Height), start, 0, cb)
+}
+
+func (r *Root) ForEachAtTracked(ctx context.Context, start uint64, cb func(uint64, *cbg.Deferred, []int) error) error {
+	return r.Node.forEachAtTracked(ctx, r.store, []int{}, int(r.Height), start, 0, cb)
+}
+
+func (r *Root) ForEachAtTrackedWithNodeSink(ctx context.Context, start uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) error {
+	return r.Node.forEachAtTrackedWithNodeSink(ctx, r.store, []int{}, int(r.Height), start, 0, b, sink, cb)
+}
+
+func (r *Root) ForEachAtParallel(ctx context.Context, concurrency int, start uint64, cb func(uint64, *cbg.Deferred) error) error {
+	return r.Node.forEachAtParallel(ctx, r.store, int(r.Height), start, 0, cb, concurrency)
+}
+
+func (r *Root) ForEachAtParallelTracked(ctx context.Context, concurrency int, start uint64, cb func(uint64, *cbg.Deferred, []int) error) error {
+	return r.Node.forEachAtParallelTracked(ctx, r.store, []int{}, int(r.Height), start, 0, cb, concurrency)
+}
+
+func (r *Root) ForEachAtParallelTrackedWithNodeSink(ctx context.Context, concurrency int, start uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) error {
+	return r.Node.forEachAtParallelTrackedWithNodeSink(ctx, r.store, []int{}, int(r.Height), start, 0, b, sink, cb, concurrency)
 }
 
 func (n *Node) forEachAt(ctx context.Context, bs cbor.IpldStore, height int, start, offset uint64, cb func(uint64, *cbg.Deferred) error) error {
@@ -309,6 +351,776 @@ func (n *Node) forEachAt(ctx context.Context, bs cbor.IpldStore, height int, sta
 	}
 	return nil
 
+}
+
+func (n *Node) forEachAtTracked(ctx context.Context, bs cbor.IpldStore, trail []int, height int, start, offset uint64, cb func(uint64, *cbg.Deferred, []int) error) error {
+	l := len(trail)
+
+	if height == 0 {
+		n.expandValues()
+
+		for i, v := range n.expVals {
+			if v != nil {
+				subTrail := make([]int, l, l+1)
+				copy(subTrail, trail)
+				subTrail = append(subTrail, i)
+
+				ix := offset + uint64(i)
+				if ix < start {
+					continue
+				}
+
+				if err := cb(offset+uint64(i), v, subTrail); err != nil {
+					return err
+				}
+			}
+		}
+
+		return nil
+	}
+
+	if n.cache == nil {
+		n.expandLinks()
+	}
+
+	subCount := nodesForHeight(height)
+	for i, v := range n.expLinks {
+		var sub Node
+		if n.cache[i] != nil {
+			sub = *n.cache[i]
+		} else if v != cid.Undef {
+			if err := bs.Get(ctx, v, &sub); err != nil {
+				return err
+			}
+		} else {
+			continue
+		}
+
+		subTrail := make([]int, l, l+1)
+		copy(subTrail, trail)
+		subTrail = append(subTrail, i)
+
+		offs := offset + (uint64(i) * subCount)
+		nextOffs := offs + subCount
+		if start >= nextOffs {
+			continue
+		}
+
+		if err := sub.forEachAtTracked(ctx, bs, subTrail, height-1, start, offs, cb); err != nil {
+			return err
+		}
+	}
+	return nil
+
+}
+
+func (n *Node) forEachAtTrackedWithNodeSink(ctx context.Context, bs cbor.IpldStore, trail []int, height int, start, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) error {
+	if sink != nil {
+		if b == nil {
+			b = bytes.NewBuffer(nil)
+		}
+		b.Reset()
+		if err := n.MarshalCBOR(b); err != nil {
+			return err
+		}
+		if err := sink.UnmarshalCBOR(b); err != nil {
+			return err
+		}
+	}
+
+	l := len(trail)
+
+	if height == 0 {
+		n.expandValues()
+
+		for i, v := range n.expVals {
+			if v != nil {
+				subTrail := make([]int, l, l+1)
+				copy(subTrail, trail)
+				subTrail = append(subTrail, i)
+
+				ix := offset + uint64(i)
+				if ix < start {
+					continue
+				}
+
+				if err := cb(offset+uint64(i), v, subTrail); err != nil {
+					return err
+				}
+			}
+		}
+
+		return nil
+	}
+
+	if n.cache == nil {
+		n.expandLinks()
+	}
+
+	subCount := nodesForHeight(height)
+	for i, v := range n.expLinks {
+		var sub Node
+		if n.cache[i] != nil {
+			sub = *n.cache[i]
+		} else if v != cid.Undef {
+			if err := bs.Get(ctx, v, &sub); err != nil {
+				return err
+			}
+		} else {
+			continue
+		}
+
+		subTrail := make([]int, l, l+1)
+		copy(subTrail, trail)
+		subTrail = append(subTrail, i)
+
+		offs := offset + (uint64(i) * subCount)
+		nextOffs := offs + subCount
+		if start >= nextOffs {
+			continue
+		}
+
+		if err := sub.forEachAtTrackedWithNodeSink(ctx, bs, subTrail, height-1, start, offs, b, sink, cb); err != nil {
+			return err
+		}
+	}
+	return nil
+
+}
+
+type listChildren struct {
+	children []child
+}
+
+type listChildrenTracked struct {
+	children []trackedChild
+}
+
+type link struct {
+	cid    cid.Cid
+	cached *Node
+}
+
+type child struct {
+	link *link
+	descentContext
+}
+
+type trackedChild struct {
+	link *link
+	descentContextTracked
+}
+
+type descentContext struct {
+	height int
+	offset uint64
+}
+
+type descentContextTracked struct {
+	height int
+	offset uint64
+	trail  []int
+}
+
+func (n *Node) forEachAtParallel(ctx context.Context, bs cbor.IpldStore, height int, start, offset uint64, cb func(uint64, *cbg.Deferred) error, concurrency int) error {
+	// Setup synchronization
+	grp, errGrpCtx := errgroup.WithContext(ctx)
+
+	// Input and output queues for workers.
+	feed := make(chan *listChildren)
+	out := make(chan *listChildren)
+	done := make(chan struct{})
+
+	for i := 0; i < concurrency; i++ {
+		grp.Go(func() error {
+			for childrenList := range feed {
+				linksToVisit := make([]cid.Cid, 0, len(childrenList.children))
+				linksToVisitContext := make([]descentContext, 0, len(childrenList.children))
+				cachedNodes := make([]*Node, 0, len(childrenList.children))
+				cachedNodesContext := make([]descentContext, 0, len(childrenList.children))
+				for _, child := range childrenList.children {
+					if child.link.cached != nil {
+						cachedNodes = append(cachedNodes, child.link.cached)
+						cachedNodesContext = append(cachedNodesContext, child.descentContext)
+					} else if child.link.cid != cid.Undef {
+						linksToVisit = append(linksToVisit, child.link.cid)
+						linksToVisitContext = append(linksToVisitContext, child.descentContext)
+					} else {
+						return fmt.Errorf("invalid child")
+					}
+				}
+
+				dserv := bs.(cbor.IpldGetManyStore)
+				nodes := make([]interface{}, len(linksToVisit))
+				for j := 0; j < len(linksToVisit); j++ {
+					nodes[j] = new(Node)
+				}
+				cursorChan, missingCIDs, err := dserv.GetMany(errGrpCtx, linksToVisit, nodes)
+				if err != nil {
+					return err
+				}
+				if len(missingCIDs) != 0 {
+					return fmt.Errorf("GetMany returned an incomplete result set. The set is missing these CIDs: %+v", missingCIDs)
+				}
+				for cursor := range cursorChan {
+					if cursor.Err != nil {
+						return cursor.Err
+					}
+					nextNode, ok := nodes[cursor.Index].(*Node)
+					if !ok {
+						return fmt.Errorf("expected node, got %T", nodes[cursor.Index])
+					}
+					nextChildren, err := nextNode.walkChildren(ctx, linksToVisitContext[cursor.Index].height, start, linksToVisitContext[cursor.Index].offset, cb)
+					if err != nil {
+						return err
+					}
+					select {
+					case <-errGrpCtx.Done():
+						return nil
+					default:
+						if nextChildren != nil {
+							out <- nextChildren
+						}
+					}
+				}
+				for j, cachedNode := range cachedNodes {
+					nextChildren, err := cachedNode.walkChildren(ctx, cachedNodesContext[j].height, start, cachedNodesContext[j].offset, cb)
+					if err != nil {
+						return err
+					}
+					select {
+					case <-errGrpCtx.Done():
+						return nil
+					default:
+						if nextChildren != nil {
+							out <- nextChildren
+						}
+					}
+				}
+
+				select {
+				case done <- struct{}{}:
+				case <-errGrpCtx.Done():
+				}
+			}
+			return nil
+		})
+	}
+
+	send := feed
+	var todoQueue []*listChildren
+	var inProgress int
+
+	// start the walk
+	children, err := n.walkChildren(ctx, height, start, offset, cb)
+	// if we hit an error or there are no children, then we're done
+	if err != nil || children == nil {
+		close(feed)
+		grp.Wait()
+		return err
+	}
+	next := children
+
+dispatcherLoop:
+	for {
+		select {
+		case send <- next:
+			inProgress++
+			if len(todoQueue) > 0 {
+				next = todoQueue[0]
+				todoQueue = todoQueue[1:]
+			} else {
+				next = nil
+				send = nil
+			}
+		case <-done:
+			inProgress--
+			if inProgress == 0 && next == nil {
+				break dispatcherLoop
+			}
+		case nextNodes := <-out:
+			if next == nil {
+				next = nextNodes
+				send = feed
+			} else {
+				todoQueue = append(todoQueue, nextNodes)
+			}
+		case <-errGrpCtx.Done():
+			break dispatcherLoop
+		}
+	}
+	close(feed)
+	return grp.Wait()
+}
+
+func (n *Node) forEachAtParallelTracked(ctx context.Context, bs cbor.IpldStore, trail []int, height int, start, offset uint64, cb func(uint64, *cbg.Deferred, []int) error, concurrency int) error {
+	// Setup synchronization
+	grp, errGrpCtx := errgroup.WithContext(ctx)
+
+	// Input and output queues for workers.
+	feed := make(chan *listChildrenTracked)
+	out := make(chan *listChildrenTracked)
+	done := make(chan struct{})
+
+	for i := 0; i < concurrency; i++ {
+		grp.Go(func() error {
+			for childrenList := range feed {
+				linksToVisit := make([]cid.Cid, 0, len(childrenList.children))
+				linksToVisitContext := make([]descentContextTracked, 0, len(childrenList.children))
+				cachedNodes := make([]*Node, 0, len(childrenList.children))
+				cachedNodesContext := make([]descentContextTracked, 0, len(childrenList.children))
+				for _, child := range childrenList.children {
+					if child.link.cached != nil {
+						cachedNodes = append(cachedNodes, child.link.cached)
+						cachedNodesContext = append(cachedNodesContext, child.descentContextTracked)
+					} else if child.link.cid != cid.Undef {
+						linksToVisit = append(linksToVisit, child.link.cid)
+						linksToVisitContext = append(linksToVisitContext, child.descentContextTracked)
+					} else {
+						return fmt.Errorf("invalid child")
+					}
+				}
+
+				dserv := bs.(cbor.IpldGetManyStore)
+				nodes := make([]interface{}, len(linksToVisit))
+				for j := 0; j < len(linksToVisit); j++ {
+					nodes[j] = new(Node)
+				}
+				cursorChan, missingCIDs, err := dserv.GetMany(errGrpCtx, linksToVisit, nodes)
+				if err != nil {
+					return err
+				}
+				if len(missingCIDs) != 0 {
+					return fmt.Errorf("GetMany returned an incomplete result set. The set is missing these CIDs: %+v", missingCIDs)
+				}
+				for cursor := range cursorChan {
+					if cursor.Err != nil {
+						return cursor.Err
+					}
+					nextNode, ok := nodes[cursor.Index].(*Node)
+					if !ok {
+						return fmt.Errorf("expected node, got %T", nodes[cursor.Index])
+					}
+					nextChildren, err := nextNode.walkChildrenTracked(ctx, linksToVisitContext[cursor.Index].trail, linksToVisitContext[cursor.Index].height, start, linksToVisitContext[cursor.Index].offset, cb)
+					if err != nil {
+						return err
+					}
+					select {
+					case <-errGrpCtx.Done():
+						return nil
+					default:
+						if nextChildren != nil {
+							out <- nextChildren
+						}
+					}
+				}
+				for j, cachedNode := range cachedNodes {
+					nextChildren, err := cachedNode.walkChildrenTracked(ctx, cachedNodesContext[j].trail, cachedNodesContext[j].height, start, cachedNodesContext[j].offset, cb)
+					if err != nil {
+						return err
+					}
+					select {
+					case <-errGrpCtx.Done():
+						return nil
+					default:
+						if nextChildren != nil {
+							out <- nextChildren
+						}
+					}
+				}
+
+				select {
+				case done <- struct{}{}:
+				case <-errGrpCtx.Done():
+				}
+			}
+			return nil
+		})
+	}
+
+	send := feed
+	var todoQueue []*listChildrenTracked
+	var inProgress int
+
+	// start the walk
+	children, err := n.walkChildrenTracked(ctx, trail, height, start, offset, cb)
+	// if we hit an error or there are no children, then we're done
+	if err != nil || children == nil {
+		close(feed)
+		grp.Wait()
+		return err
+	}
+	next := children
+
+dispatcherLoop:
+	for {
+		select {
+		case send <- next:
+			inProgress++
+			if len(todoQueue) > 0 {
+				next = todoQueue[0]
+				todoQueue = todoQueue[1:]
+			} else {
+				next = nil
+				send = nil
+			}
+		case <-done:
+			inProgress--
+			if inProgress == 0 && next == nil {
+				break dispatcherLoop
+			}
+		case nextNodes := <-out:
+			if next == nil {
+				next = nextNodes
+				send = feed
+			} else {
+				todoQueue = append(todoQueue, nextNodes)
+			}
+		case <-errGrpCtx.Done():
+			break dispatcherLoop
+		}
+	}
+	close(feed)
+	return grp.Wait()
+}
+
+func (n *Node) forEachAtParallelTrackedWithNodeSink(ctx context.Context, bs cbor.IpldStore, trail []int, height int, start, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error, concurrency int) error {
+	// Setup synchronization
+	grp, errGrpCtx := errgroup.WithContext(ctx)
+
+	// Input and output queues for workers.
+	feed := make(chan *listChildrenTracked)
+	out := make(chan *listChildrenTracked)
+	done := make(chan struct{})
+
+	for i := 0; i < concurrency; i++ {
+		grp.Go(func() error {
+			for childrenList := range feed {
+				linksToVisit := make([]cid.Cid, 0, len(childrenList.children))
+				linksToVisitContext := make([]descentContextTracked, 0, len(childrenList.children))
+				cachedNodes := make([]*Node, 0, len(childrenList.children))
+				cachedNodesContext := make([]descentContextTracked, 0, len(childrenList.children))
+				for _, child := range childrenList.children {
+					if child.link.cached != nil {
+						cachedNodes = append(cachedNodes, child.link.cached)
+						cachedNodesContext = append(cachedNodesContext, child.descentContextTracked)
+					} else if child.link.cid != cid.Undef {
+						linksToVisit = append(linksToVisit, child.link.cid)
+						linksToVisitContext = append(linksToVisitContext, child.descentContextTracked)
+					} else {
+						return fmt.Errorf("invalid child")
+					}
+				}
+
+				dserv := bs.(cbor.IpldGetManyStore)
+				nodes := make([]interface{}, len(linksToVisit))
+				for j := 0; j < len(linksToVisit); j++ {
+					nodes[j] = new(Node)
+				}
+				cursorChan, missingCIDs, err := dserv.GetMany(errGrpCtx, linksToVisit, nodes)
+				if err != nil {
+					return err
+				}
+				if len(missingCIDs) != 0 {
+					return fmt.Errorf("GetMany returned an incomplete result set. The set is missing these CIDs: %+v", missingCIDs)
+				}
+				for cursor := range cursorChan {
+					if cursor.Err != nil {
+						return cursor.Err
+					}
+					nextNode, ok := nodes[cursor.Index].(*Node)
+					if !ok {
+						return fmt.Errorf("expected node, got %T", nodes[cursor.Index])
+					}
+					nextChildren, err := nextNode.walkChildrenTrackedWithNodeSink(ctx, linksToVisitContext[cursor.Index].trail, linksToVisitContext[cursor.Index].height, start, linksToVisitContext[cursor.Index].offset, b, sink, cb)
+					if err != nil {
+						return err
+					}
+					select {
+					case <-errGrpCtx.Done():
+						return nil
+					default:
+						if nextChildren != nil {
+							out <- nextChildren
+						}
+					}
+				}
+				for j, cachedNode := range cachedNodes {
+					nextChildren, err := cachedNode.walkChildrenTrackedWithNodeSink(ctx, cachedNodesContext[j].trail, cachedNodesContext[j].height, start, cachedNodesContext[j].offset, b, sink, cb)
+					if err != nil {
+						return err
+					}
+					select {
+					case <-errGrpCtx.Done():
+						return nil
+					default:
+						if nextChildren != nil {
+							out <- nextChildren
+						}
+					}
+				}
+
+				select {
+				case done <- struct{}{}:
+				case <-errGrpCtx.Done():
+				}
+			}
+			return nil
+		})
+	}
+
+	send := feed
+	var todoQueue []*listChildrenTracked
+	var inProgress int
+
+	// start the walk
+	children, err := n.walkChildrenTrackedWithNodeSink(ctx, trail, height, start, offset, b, sink, cb)
+	// if we hit an error or there are no children, then we're done
+	if err != nil || children == nil {
+		close(feed)
+		grp.Wait()
+		return err
+	}
+	next := children
+
+dispatcherLoop:
+	for {
+		select {
+		case send <- next:
+			inProgress++
+			if len(todoQueue) > 0 {
+				next = todoQueue[0]
+				todoQueue = todoQueue[1:]
+			} else {
+				next = nil
+				send = nil
+			}
+		case <-done:
+			inProgress--
+			if inProgress == 0 && next == nil {
+				break dispatcherLoop
+			}
+		case nextNodes := <-out:
+			if next == nil {
+				next = nextNodes
+				send = feed
+			} else {
+				todoQueue = append(todoQueue, nextNodes)
+			}
+		case <-errGrpCtx.Done():
+			break dispatcherLoop
+		}
+	}
+	close(feed)
+	return grp.Wait()
+}
+
+func (n *Node) walkChildren(ctx context.Context, height int, start, offset uint64, cb func(uint64, *cbg.Deferred) error) (*listChildren, error) {
+	if height == 0 {
+		n.expandValues()
+
+		for i, v := range n.expVals {
+			if v != nil {
+				ix := offset + uint64(i)
+				if ix < start {
+					continue
+				}
+
+				if err := cb(offset+uint64(i), v); err != nil {
+					return nil, err
+				}
+			}
+		}
+
+		return nil, nil
+	}
+
+	if n.cache == nil {
+		n.expandLinks()
+	}
+
+	subCount := nodesForHeight(height)
+	children := make([]child, 0, len(n.expLinks))
+	for i, v := range n.expLinks {
+		var sub *Node
+		var c cid.Cid
+		if n.cache[i] != nil {
+			sub = n.cache[i]
+		} else if v != cid.Undef {
+			c = v
+		} else {
+			continue
+		}
+
+		offs := offset + (uint64(i) * subCount)
+		nextOffs := offs + subCount
+		if start >= nextOffs {
+			continue
+		}
+
+		children = append(children, child{
+			link: &link{
+				cid:    c,
+				cached: sub,
+			},
+			descentContext: descentContext{
+				height: height - 1,
+				offset: offs,
+			},
+		})
+	}
+
+	return &listChildren{children: children}, nil
+}
+
+func (n *Node) walkChildrenTracked(ctx context.Context, trail []int, height int, start, offset uint64, cb func(uint64, *cbg.Deferred, []int) error) (*listChildrenTracked, error) {
+	l := len(trail)
+
+	if height == 0 {
+		n.expandValues()
+
+		for i, v := range n.expVals {
+			if v != nil {
+				subTrail := make([]int, l, l+1)
+				copy(subTrail, trail)
+				subTrail = append(subTrail, i)
+
+				ix := offset + uint64(i)
+				if ix < start {
+					continue
+				}
+
+				if err := cb(offset+uint64(i), v, subTrail); err != nil {
+					return nil, err
+				}
+			}
+		}
+
+		return nil, nil
+	}
+
+	if n.cache == nil {
+		n.expandLinks()
+	}
+
+	subCount := nodesForHeight(height)
+	children := make([]trackedChild, 0, len(n.expLinks))
+	for i, v := range n.expLinks {
+		var sub *Node
+		var c cid.Cid
+		if n.cache[i] != nil {
+			sub = n.cache[i]
+		} else if v != cid.Undef {
+			c = v
+		} else {
+			continue
+		}
+
+		subTrail := make([]int, l, l+1)
+		copy(subTrail, trail)
+		subTrail = append(subTrail, i)
+
+		offs := offset + (uint64(i) * subCount)
+		nextOffs := offs + subCount
+		if start >= nextOffs {
+			continue
+		}
+
+		children = append(children, trackedChild{
+			link: &link{
+				cid:    c,
+				cached: sub,
+			},
+			descentContextTracked: descentContextTracked{
+				height: height - 1,
+				offset: offs,
+				trail:  subTrail,
+			},
+		})
+	}
+
+	return &listChildrenTracked{children: children}, nil
+}
+
+func (n *Node) walkChildrenTrackedWithNodeSink(ctx context.Context, trail []int, height int, start, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) (*listChildrenTracked, error) {
+	if sink != nil {
+		if b == nil {
+			b = bytes.NewBuffer(nil)
+		}
+		b.Reset()
+		if err := n.MarshalCBOR(b); err != nil {
+			return nil, err
+		}
+		if err := sink.UnmarshalCBOR(b); err != nil {
+			return nil, err
+		}
+	}
+	l := len(trail)
+
+	if height == 0 {
+		n.expandValues()
+
+		for i, v := range n.expVals {
+			if v != nil {
+				subTrail := make([]int, l, l+1)
+				copy(subTrail, trail)
+				subTrail = append(subTrail, i)
+
+				ix := offset + uint64(i)
+				if ix < start {
+					continue
+				}
+
+				if err := cb(offset+uint64(i), v, subTrail); err != nil {
+					return nil, err
+				}
+			}
+		}
+
+		return nil, nil
+	}
+
+	if n.cache == nil {
+		n.expandLinks()
+	}
+
+	subCount := nodesForHeight(height)
+	children := make([]trackedChild, 0, len(n.expLinks))
+	for i, v := range n.expLinks {
+		var sub *Node
+		var c cid.Cid
+		if n.cache[i] != nil {
+			sub = n.cache[i]
+		} else if v != cid.Undef {
+			c = v
+		} else {
+			continue
+		}
+
+		subTrail := make([]int, l, l+1)
+		copy(subTrail, trail)
+		subTrail = append(subTrail, i)
+
+		offs := offset + (uint64(i) * subCount)
+		nextOffs := offs + subCount
+		if start >= nextOffs {
+			continue
+		}
+
+		children = append(children, trackedChild{
+			link: &link{
+				cid:    c,
+				cached: sub,
+			},
+			descentContextTracked: descentContextTracked{
+				height: height - 1,
+				offset: offs,
+				trail:  subTrail,
+			},
+		})
+	}
+
+	return &listChildrenTracked{children: children}, nil
 }
 
 func (r *Root) FirstSetIndex(ctx context.Context) (uint64, error) {
