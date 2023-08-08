@@ -346,15 +346,15 @@ func (r *Root) ForEachParallelTrackWithNodeSink(ctx context.Context, concurrency
 	return r.node.forEachAtParallelTrackedWithNodeSink(ctx, r.store, trail, r.bitWidth, r.height, 0, 0, b, sink, cb, concurrency)
 }
 
-func (r *Root) ForEachAtParallel(ctx context.Context, start uint64, concurrency int, cb func(uint64, *cbg.Deferred) error) error {
+func (r *Root) ForEachAtParallel(ctx context.Context, concurrency int, start uint64, cb func(uint64, *cbg.Deferred) error) error {
 	return r.node.forEachAtParallel(ctx, r.store, r.bitWidth, r.height, start, 0, cb, concurrency)
 }
 
-func (r *Root) ForEachAtParallelTracked(ctx context.Context, start uint64, concurrency int, trail []int, cb func(uint64, *cbg.Deferred, []int) error) error {
+func (r *Root) ForEachAtParallelTracked(ctx context.Context, concurrency int, start uint64, trail []int, cb func(uint64, *cbg.Deferred, []int) error) error {
 	return r.node.forEachAtParallelTracked(ctx, r.store, trail, r.bitWidth, r.height, start, 0, cb, concurrency)
 }
 
-func (r *Root) ForEachAtParallelTrackedWithNodeSink(ctx context.Context, start uint64, concurrency int, trail []int, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) error {
+func (r *Root) ForEachAtParallelTrackedWithNodeSink(ctx context.Context, concurrency int, start uint64, trail []int, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) error {
 	return r.node.forEachAtParallelTrackedWithNodeSink(ctx, r.store, trail, r.bitWidth, r.height, start, 0, b, sink, cb, concurrency)
 }
 

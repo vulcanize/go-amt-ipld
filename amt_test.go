@@ -974,67 +974,62 @@ func TestForEachAt(t *testing.T) {
 }
 
 func TestForEachAtParallel(t *testing.T) {
-	bs := cbor.NewCborStore(newMockBlocks())
-	ctx := context.Background()
-	a, err := NewAMT(bs)
-	require.NoError(t, err)
+	runTestWithBitWidths(t, bitWidths2to18, func(t *testing.T, opts ...Option) {
+		bs := cbor.NewGetManyCborStore(newMockBlocks())
+		ctx := context.Background()
+		a, err := NewAMT(bs, opts...)
+		require.NoError(t, err)
 
-	r := rand.New(rand.NewSource(101))
+		r := rand.New(rand.NewSource(101))
 
-	var indexes []uint64
-	for i := 0; i < 10000; i++ {
-		if r.Intn(2) == 0 {
+		var indexes []uint64
+		for i := 0; i < cbg.MaxLength; i++ { // above bitwidth 13, inserting more than cbg.MaxLength causes node.Values to exceed the cbg.MaxLength
 			indexes = append(indexes, uint64(i))
-		}
-	}
-
-	for _, i := range indexes {
-		if err := a.Set(ctx, i, cborstr(fmt.Sprint(i))); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	for _, i := range indexes {
-		assertGet(ctx, t, a, i, fmt.Sprint(i))
-	}
-
-	assertCount(t, a, uint64(len(indexes)))
-
-	c, err := a.Flush(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	na, err := LoadAMT(ctx, bs, c)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	assertCount(t, na, uint64(len(indexes)))
-	m := sync.Mutex{}
-	for try := 0; try < 10; try++ {
-		start := uint64(r.Intn(10000))
-
-		var x int
-		for ; indexes[x] < start; x++ {
-		}
-
-		err = na.ForEachAt(ctx, start, func(i uint64, v *cbg.Deferred) error {
-			m.Lock()
-			defer m.Unlock()
-			if i != indexes[x] {
-				t.Fatal("got wrong index", i, indexes[x], x)
+			if err := a.Set(ctx, uint64(i), cborstr(fmt.Sprint(i))); err != nil {
+				t.Fatal(err)
 			}
-			x++
-			return nil
-		})
+		}
+
+		for _, i := range indexes {
+			assertGet(ctx, t, a, i, fmt.Sprint(i))
+		}
+
+		assertCount(t, a, uint64(len(indexes)))
+
+		c, err := a.Flush(ctx)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if x != len(indexes) {
-			t.Fatal("didnt see enough values")
+
+		na, err := LoadAMT(ctx, bs, c, opts...)
+		if err != nil {
+			t.Fatal(err)
 		}
-	}
+
+		assertCount(t, na, uint64(len(indexes)))
+		m := sync.Mutex{}
+		for try := 0; try < 10; try++ {
+			start := uint64(r.Intn(cbg.MaxLength))
+
+			expectedIndexes := make(map[uint64]struct{})
+			for i := start; i < cbg.MaxLength; i++ {
+				expectedIndexes[i] = struct{}{}
+			}
+
+			err = na.ForEachAtParallel(ctx, 16, start, func(i uint64, v *cbg.Deferred) error {
+				m.Lock()
+				delete(expectedIndexes, i)
+				m.Unlock()
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(expectedIndexes) != 0 {
+				t.Fatal("didnt see enough values")
+			}
+		}
+	})
 }
 
 func TestFirstSetIndex(t *testing.T) {
