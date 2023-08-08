@@ -29,7 +29,7 @@ require (
 	github.com/multiformats/go-varint v0.0.5 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/polydawn/refmt v0.0.0-20190221155625-df39d6c2d992 // indirect
-	github.com/smarty/assertions v1.15.1 // indirect
+	github.com/smartystreets/assertions v0.0.0-20180927180507-b2de0cb4f26d // indirect
 	github.com/spaolacci/murmur3 v1.1.0 // indirect
 	golang.org/x/crypto v0.1.0 // indirect
 	golang.org/x/sys v0.6.0 // indirect
@@ -37,4 +37,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.0-20210107192922-496545a6307b // indirect
 )
 
-replace github.com/ipfs/go-ipld-cbor => /Users/iannorden/go/src/github.com/ipfs/go-ipld-cbor
+replace github.com/ipfs/go-ipld-cbor => github.com/vulcanize/go-ipld-cbor v0.0.7-internal

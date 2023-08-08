@@ -396,60 +396,6 @@ func TestForEachWithoutFlush(t *testing.T) {
 	})
 }
 
-func TestForEachParallel(t *testing.T) {
-	runTestWithBitWidths(t, bitWidths2to18, func(t *testing.T, opts ...Option) {
-		bs := cbor.NewGetManyCborStore(newMockBlocks())
-		ctx := context.Background()
-
-		for _, vals := range [][]uint64{
-			{0, 1, 2, 3, 4, 5, 6, 7},
-			{8},
-			{8, 9, 64},
-			{64, 8, 9},
-		} {
-			amt, err := NewAMT(bs, opts...)
-			require.NoError(t, err)
-			set1 := make(map[uint64]struct{})
-			set2 := make(map[uint64]struct{})
-			set3 := make(map[uint64]struct{})
-			for _, val := range vals {
-				err := amt.Set(ctx, val, cborstr(""))
-				require.NoError(t, err)
-
-				set1[val] = struct{}{}
-				set2[val] = struct{}{}
-				set3[val] = struct{}{}
-			}
-			err = amt.ForEachParallel(ctx, 16, func(u uint64, deferred *cbg.Deferred) error {
-				delete(set1, u)
-				return nil
-			})
-			require.NoError(t, err)
-			assert.Equal(t, make(map[uint64]struct{}), set1)
-
-			// ensure it still works after flush
-			c, err := amt.Flush(ctx)
-			require.NoError(t, err)
-
-			err = amt.ForEachParallel(ctx, 16, func(u uint64, deferred *cbg.Deferred) error {
-				delete(set2, u)
-				return nil
-			})
-			require.NoError(t, err)
-			assert.Equal(t, make(map[uint64]struct{}), set2)
-
-			// ensure that it works with a loaded AMT
-			loadedAMT, err := LoadAMT(ctx, bs, c, opts...)
-			err = loadedAMT.ForEachParallel(ctx, 16, func(u uint64, deferred *cbg.Deferred) error {
-				delete(set3, u)
-				return nil
-			})
-			require.NoError(t, err)
-			assert.Equal(t, make(map[uint64]struct{}), set3)
-		}
-	})
-}
-
 type op struct {
 	del  bool
 	idxs []uint64
@@ -875,6 +821,94 @@ func TestForEach(t *testing.T) {
 	})
 }
 
+func TestForEachParallel(t *testing.T) {
+	bs := cbor.NewGetManyCborStore(newMockBlocks())
+	ctx := context.Background()
+	a, err := NewAMT(bs)
+	require.NoError(t, err)
+
+	r := rand.New(rand.NewSource(101))
+
+	indexes := make(map[uint64]struct{})
+	for i := 0; i < 10000; i++ {
+		if r.Intn(2) == 0 {
+			indexes[uint64(i)] = struct{}{}
+		}
+	}
+
+	for i := range indexes {
+		if err := a.Set(ctx, i, cborstr("value")); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for i := range indexes {
+		assertGet(ctx, t, a, i, "value")
+	}
+
+	assertCount(t, a, uint64(len(indexes)))
+
+	// test before flush
+	m := sync.Mutex{}
+	foundVals := make(map[uint64]struct{})
+	err = a.ForEachParallel(ctx, 16, func(i uint64, v *cbg.Deferred) error {
+		m.Lock()
+		foundVals[i] = struct{}{}
+		m.Unlock()
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(foundVals) != len(indexes) {
+		t.Fatal("didnt see enough values")
+	}
+
+	c, err := a.Flush(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertCount(t, a, uint64(len(indexes)))
+
+	// test after flush
+	foundVals = make(map[uint64]struct{})
+	err = a.ForEachParallel(ctx, 16, func(i uint64, v *cbg.Deferred) error {
+		m.Lock()
+		foundVals[i] = struct{}{}
+		m.Unlock()
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(foundVals) != len(indexes) {
+		t.Fatal("didnt see enough values")
+	}
+
+	na, err := LoadAMT(ctx, bs, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertCount(t, na, uint64(len(indexes)))
+
+	// test from loaded AMT
+	foundVals = make(map[uint64]struct{})
+	err = na.ForEachParallel(ctx, 16, func(i uint64, v *cbg.Deferred) error {
+		m.Lock()
+		foundVals[i] = struct{}{}
+		m.Unlock()
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(foundVals) != len(indexes) {
+		t.Fatal("didnt see enough values")
+	}
+}
+
 func TestForEachAt(t *testing.T) {
 	runTestWithBitWidths(t, bitWidths2to18, func(t *testing.T, opts ...Option) {
 		bs := cbor.NewCborStore(newMockBlocks())
@@ -933,6 +967,65 @@ func TestForEachAt(t *testing.T) {
 				t.Fatal(err)
 			}
 			if x != len(indexes) {
+				t.Fatal("didnt see enough values")
+			}
+		}
+	})
+}
+
+func TestForEachAtParallel(t *testing.T) {
+	runTestWithBitWidths(t, bitWidths2to18, func(t *testing.T, opts ...Option) {
+		bs := cbor.NewGetManyCborStore(newMockBlocks())
+		ctx := context.Background()
+		a, err := NewAMT(bs, opts...)
+		require.NoError(t, err)
+
+		r := rand.New(rand.NewSource(101))
+
+		var indexes []uint64
+		for i := 0; i < cbg.MaxLength; i++ { // above bitwidth 13, inserting more than cbg.MaxLength causes node.Values to exceed the cbg.MaxLength
+			indexes = append(indexes, uint64(i))
+			if err := a.Set(ctx, uint64(i), cborstr(fmt.Sprint(i))); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		for _, i := range indexes {
+			assertGet(ctx, t, a, i, fmt.Sprint(i))
+		}
+
+		assertCount(t, a, uint64(len(indexes)))
+
+		c, err := a.Flush(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		na, err := LoadAMT(ctx, bs, c, opts...)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assertCount(t, na, uint64(len(indexes)))
+		m := sync.Mutex{}
+		for try := 0; try < 10; try++ {
+			start := uint64(r.Intn(cbg.MaxLength))
+
+			expectedIndexes := make(map[uint64]struct{})
+			for i := start; i < cbg.MaxLength; i++ {
+				expectedIndexes[i] = struct{}{}
+			}
+
+			err = na.ForEachAtParallel(ctx, 16, start, func(i uint64, v *cbg.Deferred) error {
+				m.Lock()
+				delete(expectedIndexes, i)
+				m.Unlock()
+				return nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(expectedIndexes) != 0 {
 				t.Fatal("didnt see enough values")
 			}
 		}
