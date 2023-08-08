@@ -1,6 +1,6 @@
 module github.com/filecoin-project/go-amt-ipld/v2
 
-go 1.12
+go 1.16
 
 require (
 	github.com/ipfs/go-block-format v0.0.2
@@ -13,4 +13,4 @@ require (
 	golang.org/x/xerrors v0.0.0-20200804184101-5ec99f83aff1
 )
 
-replace github.com/ipfs/go-ipld-cbor => /Users/iannorden/go/src/github.com/ipfs/go-ipld-cbor
+replace github.com/ipfs/go-ipld-cbor => github.com/vulcanize/go-ipld-cbor v0.0.7-internal
