@@ -431,7 +431,7 @@ func (n *node) forEachAtTrackedWithNodeSink(ctx context.Context, bs cbor.IpldSto
 			b = bytes.NewBuffer(nil)
 		}
 		b.Reset()
-		internalNode, err := n.compact(ctx, bs, bitWidth, height)
+		internalNode, err := n.compact(ctx, bitWidth, height)
 		if err != nil {
 			return err
 		}
@@ -854,7 +854,7 @@ func (n *node) forEachAtParallelTrackedWithNodeSink(ctx context.Context, bs cbor
 					if err != nil {
 						return err
 					}
-					nextChildren, err := nextNode.walkChildrenTrackedWithNodeSink(ctx, bs, bitWidth, linksToVisitContext[cursor.Index].trail, linksToVisitContext[cursor.Index].height, start, linksToVisitContext[cursor.Index].offset, b, sink, cb)
+					nextChildren, err := nextNode.walkChildrenTrackedWithNodeSink(ctx, bitWidth, linksToVisitContext[cursor.Index].trail, linksToVisitContext[cursor.Index].height, start, linksToVisitContext[cursor.Index].offset, b, sink, cb)
 					if err != nil {
 						return err
 					}
@@ -868,7 +868,7 @@ func (n *node) forEachAtParallelTrackedWithNodeSink(ctx context.Context, bs cbor
 					}
 				}
 				for j, cachedNode := range cachedNodes {
-					nextChildren, err := cachedNode.walkChildrenTrackedWithNodeSink(ctx, bs, bitWidth, cachedNodesContext[j].trail, cachedNodesContext[j].height, start, cachedNodesContext[j].offset, b, sink, cb)
+					nextChildren, err := cachedNode.walkChildrenTrackedWithNodeSink(ctx, bitWidth, cachedNodesContext[j].trail, cachedNodesContext[j].height, start, cachedNodesContext[j].offset, b, sink, cb)
 					if err != nil {
 						return err
 					}
@@ -896,7 +896,7 @@ func (n *node) forEachAtParallelTrackedWithNodeSink(ctx context.Context, bs cbor
 	var inProgress int
 
 	// start the walk
-	children, err := n.walkChildrenTrackedWithNodeSink(ctx, bs, bitWidth, trail, height, start, offset, b, sink, cb)
+	children, err := n.walkChildrenTrackedWithNodeSink(ctx, bitWidth, trail, height, start, offset, b, sink, cb)
 	// if we hit an error or there are no children, then we're done
 	if err != nil || children == nil {
 		close(feed)
@@ -997,13 +997,13 @@ func (n *node) walkChildrenTracked(ctx context.Context, bitWidth uint, trail []i
 	return &listChildrenTracked{children: children}, nil
 }
 
-func (n *node) walkChildrenTrackedWithNodeSink(ctx context.Context, bs cbor.IpldStore, bitWidth uint, trail []int, height int, start, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) (*listChildrenTracked, error) {
+func (n *node) walkChildrenTrackedWithNodeSink(ctx context.Context, bitWidth uint, trail []int, height int, start, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) (*listChildrenTracked, error) {
 	if sink != nil {
 		if b == nil {
 			b = bytes.NewBuffer(nil)
 		}
 		b.Reset()
-		internalNode, err := n.compact(ctx, bs, bitWidth, height)
+		internalNode, err := n.compact(ctx, bitWidth, height)
 		if err != nil {
 			return nil, err
 		}
@@ -1269,7 +1269,7 @@ func (n *node) flush(ctx context.Context, bs cbor.IpldStore, bitWidth uint, heig
 }
 
 // compact converts a node into its internal.Node representation
-func (n *node) compact(ctx context.Context, bs cbor.IpldStore, bitWidth uint, height int) (*internal.Node, error) {
+func (n *node) compact(ctx context.Context, bitWidth uint, height int) (*internal.Node, error) {
 	nd := new(internal.Node)
 	nd.Bmap = make([]byte, bmapBytes(bitWidth))
 
@@ -1295,11 +1295,11 @@ func (n *node) compact(ctx context.Context, bs cbor.IpldStore, bitWidth uint, he
 			if ln.cached == nil {
 				return nil, fmt.Errorf("expected dirty node to be cached")
 			}
-			subn, err := ln.cached.flush(ctx, bs, bitWidth, height-1)
+			subn, err := ln.cached.compact(ctx, bitWidth, height-1)
 			if err != nil {
 				return nil, err
 			}
-			c, err := bs.Put(ctx, subn)
+			c, err := calcCID(subn)
 			if err != nil {
 				return nil, err
 			}
@@ -1313,6 +1313,29 @@ func (n *node) compact(ctx context.Context, bs cbor.IpldStore, bitWidth uint, he
 	}
 
 	return nd, nil
+}
+
+func calcCID(node cbg.CBORMarshaler) (cid.Cid, error) {
+	mhType := cbor.DefaultMultihash
+	mhLen := -1
+	codec := uint64(cid.DagCBOR)
+
+	buf := new(bytes.Buffer)
+	if err := node.MarshalCBOR(buf); err != nil {
+		return cid.Undef, err
+	}
+
+	pref := cid.Prefix{
+		Codec:    codec,
+		MhType:   mhType,
+		MhLength: mhLen,
+		Version:  1,
+	}
+	c, err := pref.Sum(buf.Bytes())
+	if err != nil {
+		return cid.Undef, err
+	}
+	return c, nil
 }
 
 func (n *node) setLink(bitWidth uint, i uint64, l *link) {
