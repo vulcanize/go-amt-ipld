@@ -30,9 +30,17 @@ func init() {
 }
 
 var (
+	bitWidths3     = []uint{8}
 	bitWidths2to18 = []uint{2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18}
 	bitWidths2to3  = []uint{2, 3}
 )
+
+func runTestWithBitWidthsOnly(t *testing.T, bitwidths []uint, fn func(*testing.T, ...Option)) {
+	t.Helper()
+	for _, bw := range bitwidths {
+		t.Run(fmt.Sprintf("bitwidth=%d", bw), func(t *testing.T) { fn(t, UseTreeBitWidth(bw)) })
+	}
+}
 
 func runTestWithBitWidths(t *testing.T, bitwidths []uint, fn func(*testing.T, ...Option)) {
 	t.Helper()
@@ -1028,6 +1036,357 @@ func TestForEachAtParallel(t *testing.T) {
 			if len(expectedIndexes) != 0 {
 				t.Fatal("didnt see enough values")
 			}
+		}
+	})
+}
+
+func TestForEachParallelTracked(t *testing.T) {
+	runTestWithBitWidthsOnly(t, bitWidths3, func(t *testing.T, ops ...Option) {
+		uint64DefaultBitWidth := uint64(3)
+		bs := cbor.NewGetManyCborStore(newMockBlocks())
+		ctx := context.Background()
+		a, err := NewAMT(bs)
+		require.NoError(t, err)
+
+		indexes := make(map[uint64]struct{})
+		width := uint64Pow(2, uint64DefaultBitWidth)
+		target := uint64Pow(width, 2) // make a power of 8 (width) to keep things simple
+		for i := uint64(0); i < target; i++ {
+			indexes[i] = struct{}{}
+			if err := a.Set(ctx, i, cborstr("value")); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		for i := range indexes {
+			assertGet(ctx, t, a, i, "value")
+		}
+
+		assertCount(t, a, uint64(len(indexes)))
+
+		// test before flush
+		m := sync.Mutex{}
+		foundVals := make(map[uint64]struct{})
+		for i, v := range indexes {
+			foundVals[i] = v
+		}
+
+		expectedTrails := make(map[string]struct{}, target)
+		widthInt := int(width)
+		for i := 0; i < widthInt; i++ {
+			trail := ""
+			for j := 0; j < widthInt; j++ {
+				trail = fmt.Sprintf("%d, ", i)
+				trail += fmt.Sprintf("%d", j)
+				expectedTrails[trail] = struct{}{}
+			}
+		}
+
+		err = a.ForEachParallelTracked(ctx, 16, func(i uint64, v *cbg.Deferred, trail []int) error {
+			trailStr := ""
+			for i, t := range trail {
+				if i != len(trail)-1 {
+					trailStr += fmt.Sprintf("%d, ", t)
+				} else {
+					trailStr += fmt.Sprintf("%d", t)
+				}
+			}
+			m.Lock()
+			delete(expectedTrails, trailStr)
+			delete(foundVals, i)
+			m.Unlock()
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(foundVals) != 0 {
+			t.Fatal("didnt see enough values")
+		}
+		if len(expectedTrails) != 0 {
+			t.Fatal("didnt see expected trails")
+		}
+
+		c, err := a.Flush(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assertCount(t, a, uint64(len(indexes)))
+
+		// test after flush
+		foundVals = make(map[uint64]struct{})
+		for i, v := range indexes {
+			foundVals[i] = v
+		}
+		expectedTrails = make(map[string]struct{}, 64)
+
+		for i := 0; i < widthInt; i++ {
+			trail := ""
+			for j := 0; j < widthInt; j++ {
+				trail = fmt.Sprintf("%d, ", i)
+				trail += fmt.Sprintf("%d", j)
+				expectedTrails[trail] = struct{}{}
+			}
+			expectedTrails[trail] = struct{}{}
+		}
+
+		err = a.ForEachParallelTracked(ctx, 16, func(i uint64, v *cbg.Deferred, trail []int) error {
+			trailStr := ""
+			for i, t := range trail {
+				if i != len(trail)-1 {
+					trailStr += fmt.Sprintf("%d, ", t)
+				} else {
+					trailStr += fmt.Sprintf("%d", t)
+				}
+			}
+			m.Lock()
+			delete(expectedTrails, trailStr)
+			delete(foundVals, i)
+			m.Unlock()
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(foundVals) != 0 {
+			t.Fatal("didnt see enough values")
+		}
+		if len(expectedTrails) != 0 {
+			t.Fatal("didnt see expected trails")
+		}
+
+		na, err := LoadAMT(ctx, bs, c)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assertCount(t, na, uint64(len(indexes)))
+
+		// test from loaded AMT
+		foundVals = make(map[uint64]struct{})
+		for i, v := range indexes {
+			foundVals[i] = v
+		}
+		expectedTrails = make(map[string]struct{}, 64)
+
+		for i := 0; i < widthInt; i++ {
+			trail := ""
+			for j := 0; j < widthInt; j++ {
+				trail = fmt.Sprintf("%d, ", i)
+				trail += fmt.Sprintf("%d", j)
+				expectedTrails[trail] = struct{}{}
+			}
+			expectedTrails[trail] = struct{}{}
+		}
+
+		err = a.ForEachParallelTracked(ctx, 16, func(i uint64, v *cbg.Deferred, trail []int) error {
+			trailStr := ""
+			for i, t := range trail {
+				if i != len(trail)-1 {
+					trailStr += fmt.Sprintf("%d, ", t)
+				} else {
+					trailStr += fmt.Sprintf("%d", t)
+				}
+			}
+			m.Lock()
+			delete(expectedTrails, trailStr)
+			delete(foundVals, i)
+			m.Unlock()
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(foundVals) != 0 {
+			t.Fatal("didnt see enough values")
+		}
+		if len(expectedTrails) != 0 {
+			t.Fatal("didnt see expected trails")
+		}
+	})
+}
+
+func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
+	runTestWithBitWidthsOnly(t, bitWidths3, func(t *testing.T, ops ...Option) {
+		uint64DefaultBitWidth := uint64(3)
+
+		bs := cbor.NewGetManyCborStore(newMockBlocks())
+		ctx := context.Background()
+		a, err := NewAMT(bs)
+		require.NoError(t, err)
+
+		indexes := make(map[uint64]struct{})
+		width := uint64Pow(2, uint64DefaultBitWidth)
+		target := uint64Pow(width, 2) // make a power of 8 (width) to keep things simple
+		for i := uint64(0); i < target; i++ {
+			indexes[i] = struct{}{}
+			if err := a.Set(ctx, i, cborstr("value")); err != nil {
+				t.Fatal(err)
+			}
+		}
+
+		for i := range indexes {
+			assertGet(ctx, t, a, i, "value")
+		}
+
+		assertCount(t, a, uint64(len(indexes)))
+
+		// test before flush
+		m := sync.Mutex{}
+		foundVals := make(map[uint64]struct{})
+		for i, v := range indexes {
+			foundVals[i] = v
+		}
+		b := new(bytes.Buffer)
+		counterSink := new(CBORSinkCounter)
+		expectedTrails := make(map[string]struct{}, target)
+
+		widthInt := int(width)
+		for i := 0; i < widthInt; i++ {
+			trail := ""
+			for j := 0; j < widthInt; j++ {
+				trail = fmt.Sprintf("%d, ", i)
+				trail += fmt.Sprintf("%d", j)
+			}
+			expectedTrails[trail] = struct{}{}
+		}
+
+		err = a.ForEachParallelTrackedWithNodeSink(ctx, 16, b, counterSink, func(i uint64, v *cbg.Deferred, trail []int) error {
+			trailStr := ""
+			for i, t := range trail {
+				if i != len(trail)-1 {
+					trailStr += fmt.Sprintf("%d, ", t)
+				} else {
+					trailStr += fmt.Sprintf("%d", t)
+				}
+			}
+			m.Lock()
+			delete(expectedTrails, trailStr)
+			delete(foundVals, i)
+			m.Unlock()
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(foundVals) != 0 {
+			t.Fatal("didnt see enough values")
+		}
+		if len(expectedTrails) != 0 {
+			t.Fatal("didnt see expected trails")
+		}
+		expectedSinkCount := target / width
+		div := expectedSinkCount/width - 1
+		expectedSinkCount += uint64Pow(width, div)
+		if counterSink.calledTimes != expectedSinkCount {
+			t.Fatal("didnt call sink enough times")
+		}
+
+		c, err := a.Flush(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assertCount(t, a, uint64(len(indexes)))
+
+		// test after flush
+		foundVals = make(map[uint64]struct{})
+		for i, v := range indexes {
+			foundVals[i] = v
+		}
+		b = new(bytes.Buffer)
+		counterSink = new(CBORSinkCounter)
+		expectedTrails = make(map[string]struct{}, 64)
+
+		for i := 0; i < widthInt; i++ {
+			trail := ""
+			for j := 0; j < widthInt; j++ {
+				trail = fmt.Sprintf("%d, ", i)
+				trail += fmt.Sprintf("%d", j)
+				expectedTrails[trail] = struct{}{}
+			}
+		}
+
+		err = a.ForEachParallelTrackedWithNodeSink(ctx, 16, b, counterSink, func(i uint64, v *cbg.Deferred, trail []int) error {
+			trailStr := ""
+			for i, t := range trail {
+				if i != len(trail)-1 {
+					trailStr += fmt.Sprintf("%d, ", t)
+				} else {
+					trailStr += fmt.Sprintf("%d", t)
+				}
+			}
+			m.Lock()
+			delete(expectedTrails, trailStr)
+			delete(foundVals, i)
+			m.Unlock()
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(foundVals) != 0 {
+			t.Fatal("didnt see enough values")
+		}
+		if len(expectedTrails) != 0 {
+			t.Fatal("didnt see expected trails")
+		}
+		if counterSink.calledTimes != expectedSinkCount {
+			t.Fatal("didnt call sink enough times")
+		}
+
+		na, err := LoadAMT(ctx, bs, c)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		assertCount(t, na, uint64(len(indexes)))
+
+		// test from loaded AMT
+		foundVals = make(map[uint64]struct{})
+		for i, v := range indexes {
+			foundVals[i] = v
+		}
+		b = new(bytes.Buffer)
+		counterSink = new(CBORSinkCounter)
+		expectedTrails = make(map[string]struct{}, 64)
+
+		for i := 0; i < widthInt; i++ {
+			trail := ""
+			for j := 0; j < widthInt; j++ {
+				trail = fmt.Sprintf("%d, ", i)
+				trail += fmt.Sprintf("%d", j)
+				expectedTrails[trail] = struct{}{}
+			}
+		}
+
+		err = a.ForEachParallelTrackedWithNodeSink(ctx, 16, b, counterSink, func(i uint64, v *cbg.Deferred, trail []int) error {
+			trailStr := ""
+			for i, t := range trail {
+				if i != len(trail)-1 {
+					trailStr += fmt.Sprintf("%d, ", t)
+				} else {
+					trailStr += fmt.Sprintf("%d", t)
+				}
+			}
+			m.Lock()
+			delete(expectedTrails, trailStr)
+			delete(foundVals, i)
+			m.Unlock()
+			return nil
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(foundVals) != 0 {
+			t.Fatal("didnt see enough values")
+		}
+		if len(expectedTrails) != 0 {
+			t.Fatal("didnt see expected trails")
+		}
+		if counterSink.calledTimes != expectedSinkCount {
+			t.Fatal("didnt call sink enough times")
 		}
 	})
 }
