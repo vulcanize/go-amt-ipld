@@ -337,7 +337,7 @@ func (r *Root) ForEachParallelTracked(ctx context.Context, concurrency int, cb f
 	return r.node.forEachAtParallelTracked(ctx, r.store, []int{}, r.bitWidth, r.height, 0, 0, cb, concurrency)
 }
 
-func (r *Root) ForEachParallelTrackWithNodeSink(ctx context.Context, concurrency int, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) error {
+func (r *Root) ForEachParallelTrackedWithNodeSink(ctx context.Context, concurrency int, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) error {
 	return r.node.forEachAtParallelTrackedWithNodeSink(ctx, r.store, []int{}, r.bitWidth, r.height, 0, 0, b, sink, cb, concurrency)
 }
 
