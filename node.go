@@ -1291,12 +1291,51 @@ func (n *node) compact(ctx context.Context, bitWidth uint, height int) (*interna
 		if ln == nil {
 			continue
 		}
+		if ln.dirty {
+			if ln.cached == nil {
+				return nil, fmt.Errorf("expected dirty node to be cached")
+			}
+			subn, err := ln.cached.compact(ctx, bitWidth, height-1)
+			if err != nil {
+				return nil, err
+			}
+			c, err := calcCID(subn)
+			if err != nil {
+				return nil, err
+			}
+
+			ln.cid = c
+			ln.dirty = false
+		}
 		nd.Links = append(nd.Links, ln.cid)
 		// set the bit in the bitmap for this position to indicate its presence
 		nd.Bmap[i/8] |= 1 << (uint(i) % 8)
 	}
 
 	return nd, nil
+}
+
+func calcCID(node cbg.CBORMarshaler) (cid.Cid, error) {
+	mhType := cbor.DefaultMultihash
+	mhLen := -1
+	codec := uint64(cid.DagCBOR)
+
+	buf := new(bytes.Buffer)
+	if err := node.MarshalCBOR(buf); err != nil {
+		return cid.Undef, err
+	}
+
+	pref := cid.Prefix{
+		Codec:    codec,
+		MhType:   mhType,
+		MhLength: mhLen,
+		Version:  1,
+	}
+	c, err := pref.Sum(buf.Bytes())
+	if err != nil {
+		return cid.Undef, err
+	}
+	return c, nil
 }
 
 func (n *node) setLink(bitWidth uint, i uint64, l *link) {
