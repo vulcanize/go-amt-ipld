@@ -1006,13 +1006,13 @@ func TestForEachParallelTracked(t *testing.T) {
 			}
 		}
 		m.Lock()
+		defer m.Unlock()
 		_, ok := expectedTrails[trailStr]
 		if !ok {
 			return fmt.Errorf("unexpected trail: %s", trailStr)
 		}
 		delete(expectedTrails, trailStr)
 		delete(foundVals, i)
-		m.Unlock()
 		return nil
 	})
 	if err != nil {
@@ -1058,13 +1058,13 @@ func TestForEachParallelTracked(t *testing.T) {
 			}
 		}
 		m.Lock()
+		defer m.Unlock()
 		_, ok := expectedTrails[trailStr]
 		if !ok {
 			return fmt.Errorf("unexpected trail: %s", trailStr)
 		}
 		delete(expectedTrails, trailStr)
 		delete(foundVals, i)
-		m.Unlock()
 		return nil
 	})
 	if err != nil {
@@ -1110,13 +1110,13 @@ func TestForEachParallelTracked(t *testing.T) {
 			}
 		}
 		m.Lock()
+		defer m.Unlock()
 		_, ok := expectedTrails[trailStr]
 		if !ok {
 			return fmt.Errorf("unexpected trail: %s", trailStr)
 		}
 		delete(expectedTrails, trailStr)
 		delete(foundVals, i)
-		m.Unlock()
 		return nil
 	})
 	if err != nil {
@@ -1187,13 +1187,13 @@ func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
 			}
 		}
 		m.Lock()
+		defer m.Unlock()
 		_, ok := expectedTrails[trailStr]
 		if !ok {
 			return fmt.Errorf("unexpected trail: %s", trailStr)
 		}
 		delete(expectedTrails, trailStr)
 		delete(foundVals, i)
-		m.Unlock()
 		return nil
 	})
 	if err != nil {
@@ -1247,13 +1247,13 @@ func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
 			}
 		}
 		m.Lock()
+		defer m.Unlock()
 		_, ok := expectedTrails[trailStr]
 		if !ok {
 			return fmt.Errorf("unexpected trail: %s", trailStr)
 		}
 		delete(expectedTrails, trailStr)
 		delete(foundVals, i)
-		m.Unlock()
 		return nil
 	})
 	if err != nil {
@@ -1304,13 +1304,13 @@ func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
 			}
 		}
 		m.Lock()
+		defer m.Unlock()
 		_, ok := expectedTrails[trailStr]
 		if !ok {
 			return fmt.Errorf("unexpected trail: %s", trailStr)
 		}
 		delete(expectedTrails, trailStr)
 		delete(foundVals, i)
-		m.Unlock()
 		return nil
 	})
 	if err != nil {
