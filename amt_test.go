@@ -887,8 +887,8 @@ func TestForEachParallelTracked(t *testing.T) {
 		for j := 0; j < width; j++ {
 			trail = fmt.Sprintf("%d, ", i)
 			trail += fmt.Sprintf("%d", j)
+			expectedTrails[trail] = struct{}{}
 		}
-		expectedTrails[trail] = struct{}{}
 	}
 
 	err := a.ForEachParallelTracked(ctx, 16, func(i uint64, v *cbg.Deferred, trail []int) error {
@@ -901,6 +901,10 @@ func TestForEachParallelTracked(t *testing.T) {
 			}
 		}
 		m.Lock()
+		_, ok := expectedTrails[trailStr]
+		if !ok {
+			return fmt.Errorf("unexpected trail: %s", trailStr)
+		}
 		delete(expectedTrails, trailStr)
 		delete(foundVals, i)
 		m.Unlock()
@@ -935,8 +939,8 @@ func TestForEachParallelTracked(t *testing.T) {
 		for j := 0; j < width; j++ {
 			trail = fmt.Sprintf("%d, ", i)
 			trail += fmt.Sprintf("%d", j)
+			expectedTrails[trail] = struct{}{}
 		}
-		expectedTrails[trail] = struct{}{}
 	}
 
 	err = a.ForEachParallelTracked(ctx, 16, func(i uint64, v *cbg.Deferred, trail []int) error {
@@ -949,6 +953,10 @@ func TestForEachParallelTracked(t *testing.T) {
 			}
 		}
 		m.Lock()
+		_, ok := expectedTrails[trailStr]
+		if !ok {
+			return fmt.Errorf("unexpected trail: %s", trailStr)
+		}
 		delete(expectedTrails, trailStr)
 		delete(foundVals, i)
 		m.Unlock()
@@ -983,8 +991,8 @@ func TestForEachParallelTracked(t *testing.T) {
 		for j := 0; j < width; j++ {
 			trail = fmt.Sprintf("%d, ", i)
 			trail += fmt.Sprintf("%d", j)
+			expectedTrails[trail] = struct{}{}
 		}
-		expectedTrails[trail] = struct{}{}
 	}
 
 	err = a.ForEachParallelTracked(ctx, 16, func(i uint64, v *cbg.Deferred, trail []int) error {
@@ -997,6 +1005,10 @@ func TestForEachParallelTracked(t *testing.T) {
 			}
 		}
 		m.Lock()
+		_, ok := expectedTrails[trailStr]
+		if !ok {
+			return fmt.Errorf("unexpected trail: %s", trailStr)
+		}
 		delete(expectedTrails, trailStr)
 		delete(foundVals, i)
 		m.Unlock()
@@ -1048,8 +1060,8 @@ func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
 		for j := 0; j < width; j++ {
 			trail = fmt.Sprintf("%d, ", i)
 			trail += fmt.Sprintf("%d", j)
+			expectedTrails[trail] = struct{}{}
 		}
-		expectedTrails[trail] = struct{}{}
 	}
 
 	err := a.ForEachParallelTrackedWithNodeSink(ctx, 16, b, counterSink, func(i uint64, v *cbg.Deferred, trail []int) error {
@@ -1062,6 +1074,10 @@ func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
 			}
 		}
 		m.Lock()
+		_, ok := expectedTrails[trailStr]
+		if !ok {
+			return fmt.Errorf("unexpected trail: %s", trailStr)
+		}
 		delete(expectedTrails, trailStr)
 		delete(foundVals, i)
 		m.Unlock()
@@ -1104,8 +1120,8 @@ func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
 		for j := 0; j < width; j++ {
 			trail = fmt.Sprintf("%d, ", i)
 			trail += fmt.Sprintf("%d", j)
+			expectedTrails[trail] = struct{}{}
 		}
-		expectedTrails[trail] = struct{}{}
 	}
 
 	err = a.ForEachParallelTrackedWithNodeSink(ctx, 16, b, counterSink, func(i uint64, v *cbg.Deferred, trail []int) error {
@@ -1118,6 +1134,10 @@ func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
 			}
 		}
 		m.Lock()
+		_, ok := expectedTrails[trailStr]
+		if !ok {
+			return fmt.Errorf("unexpected trail: %s", trailStr)
+		}
 		delete(expectedTrails, trailStr)
 		delete(foundVals, i)
 		m.Unlock()
@@ -1157,8 +1177,8 @@ func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
 		for j := 0; j < width; j++ {
 			trail = fmt.Sprintf("%d, ", i)
 			trail += fmt.Sprintf("%d", j)
+			expectedTrails[trail] = struct{}{}
 		}
-		expectedTrails[trail] = struct{}{}
 	}
 
 	err = a.ForEachParallelTrackedWithNodeSink(ctx, 16, b, counterSink, func(i uint64, v *cbg.Deferred, trail []int) error {
@@ -1171,6 +1191,10 @@ func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
 			}
 		}
 		m.Lock()
+		_, ok := expectedTrails[trailStr]
+		if !ok {
+			return fmt.Errorf("unexpected trail: %s", trailStr)
+		}
 		delete(expectedTrails, trailStr)
 		delete(foundVals, i)
 		m.Unlock()
