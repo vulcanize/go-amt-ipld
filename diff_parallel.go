@@ -240,7 +240,7 @@ func parallelDiffLeaves(prev, cur *node, offset uint64, out chan *Change) error 
 	return nil
 }
 
-func parallelDiffLeavesTrackedWithNodeSink(ctx context.Context, bitWidth uint, prev, cur *node, offset uint64, trail []int, sink cbg.CBORUnmarshaler, out chan *TrackedChange) error {
+func parallelDiffLeavesTrackedWithNodeSink(ctx context.Context, bitWidth uint, prev, cur *node, offset uint64, path []int, sink cbg.CBORUnmarshaler, out chan *TrackedChange) error {
 	if len(prev.values) != len(cur.values) {
 		return fmt.Errorf("node leaves have different numbers of values (prev=%d, cur=%d)", len(prev.values), len(cur.values))
 	}
@@ -259,11 +259,11 @@ func parallelDiffLeavesTrackedWithNodeSink(ctx context.Context, bitWidth uint, p
 		}
 	}
 
-	l := len(trail)
+	l := len(path)
 	for i, prevVal := range prev.values {
-		subTrail := make([]int, l, l+1)
-		copy(subTrail, trail)
-		subTrail = append(subTrail, i)
+		subPath := make([]int, l, l+1)
+		copy(subPath, path)
+		subPath = append(subPath, i)
 		index := offset + uint64(i)
 
 		curVal := cur.values[i]
@@ -279,7 +279,7 @@ func parallelDiffLeavesTrackedWithNodeSink(ctx context.Context, bitWidth uint, p
 					Before: nil,
 					After:  curVal,
 				},
-				Path: subTrail,
+				Path: subPath,
 			}
 			continue
 		}
@@ -292,7 +292,7 @@ func parallelDiffLeavesTrackedWithNodeSink(ctx context.Context, bitWidth uint, p
 					Before: prevVal,
 					After:  nil,
 				},
-				Path: subTrail,
+				Path: subPath,
 			}
 			continue
 		}
@@ -305,7 +305,7 @@ func parallelDiffLeavesTrackedWithNodeSink(ctx context.Context, bitWidth uint, p
 					Before: prevVal,
 					After:  curVal,
 				},
-				Path: subTrail,
+				Path: subPath,
 			}
 		}
 
@@ -771,9 +771,9 @@ func (t *trackedScheduler) work(ctx context.Context, todo *trackedTask, results 
 				continue
 			}
 
-			subTrail := make([]int, l, l+1)
-			copy(subTrail, todo.path)
-			subTrail = append(subTrail, i)
+			subPath := make([]int, l, l+1)
+			copy(subPath, todo.path)
+			subPath = append(subPath, i)
 
 			subCtx := &nodeContext{
 				bs:       curCtx.bs,
@@ -796,10 +796,10 @@ func (t *trackedScheduler) work(ctx context.Context, todo *trackedTask, results 
 						cur:     subn,
 						offset:  offs,
 					},
-					path: subTrail,
+					path: subPath,
 				})
 			} else {
-				err := parallelAddAllTrackedWithNodeSink(ctx, subCtx, subn, offs, subTrail, t.sink, results)
+				err := parallelAddAllTrackedWithNodeSink(ctx, subCtx, subn, offs, subPath, t.sink, results)
 				if err != nil {
 					return err
 				}
@@ -817,9 +817,9 @@ func (t *trackedScheduler) work(ctx context.Context, todo *trackedTask, results 
 				continue
 			}
 
-			subTrail := make([]int, l, l+1)
-			copy(subTrail, todo.path)
-			subTrail = append(subTrail, i)
+			subPath := make([]int, l, l+1)
+			copy(subPath, todo.path)
+			subPath = append(subPath, i)
 
 			subCtx := &nodeContext{
 				bs:       prevCtx.bs,
@@ -847,7 +847,7 @@ func (t *trackedScheduler) work(ctx context.Context, todo *trackedTask, results 
 					path: todo.path,
 				})
 			} else {
-				err := parallelRemoveAllTracked(ctx, subCtx, subn, offs, subTrail, results)
+				err := parallelRemoveAllTracked(ctx, subCtx, subn, offs, subPath, results)
 				if err != nil {
 					return err
 				}
@@ -905,9 +905,9 @@ func (t *trackedScheduler) work(ctx context.Context, todo *trackedTask, results 
 			continue
 		}
 
-		subTrail := make([]int, l, l+1)
-		copy(subTrail, todo.path)
-		subTrail = append(subTrail, i)
+		subPath := make([]int, l, l+1)
+		copy(subPath, todo.path)
+		subPath = append(subPath, i)
 
 		// Previous had link, current did not
 		if prev.links[i] != nil && cur.links[i] == nil {
@@ -927,7 +927,7 @@ func (t *trackedScheduler) work(ctx context.Context, todo *trackedTask, results 
 			}
 
 			offs := offset + (uint64(i) * subCount)
-			err = parallelRemoveAllTracked(ctx, subCtx, subn, offs, subTrail, results)
+			err = parallelRemoveAllTracked(ctx, subCtx, subn, offs, subPath, results)
 			if err != nil {
 				return err
 			}
@@ -952,7 +952,7 @@ func (t *trackedScheduler) work(ctx context.Context, todo *trackedTask, results 
 			}
 
 			offs := offset + (uint64(i) * subCount)
-			err = parallelAddAllTrackedWithNodeSink(ctx, subCtx, subn, offs, subTrail, t.sink, results)
+			err = parallelAddAllTrackedWithNodeSink(ctx, subCtx, subn, offs, subPath, t.sink, results)
 			if err != nil {
 				return err
 			}
@@ -996,7 +996,7 @@ func (t *trackedScheduler) work(ctx context.Context, todo *trackedTask, results 
 				cur:     curSubn,
 				offset:  offs,
 			},
-			path: subTrail,
+			path: subPath,
 		})
 		if err != nil {
 			return err

@@ -352,25 +352,25 @@ func diffNode(ctx context.Context, prevCtx, curCtx *nodeContext, prev, cur *node
 	return changes, nil
 }
 
-func diffNodeTrackedWithNodeSink(ctx context.Context, prevCtx, curCtx *nodeContext, prev, cur *node, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, trail []int) ([]*TrackedChange, error) {
+func diffNodeTrackedWithNodeSink(ctx context.Context, prevCtx, curCtx *nodeContext, prev, cur *node, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, path []int) ([]*TrackedChange, error) {
 	if prev == nil && cur == nil {
 		return nil, nil
 	}
 
 	if prev == nil {
-		return addAllTrackWithNodeSink(ctx, curCtx, cur, offset, b, sink, trail)
+		return addAllTrackWithNodeSink(ctx, curCtx, cur, offset, b, sink, path)
 	}
 
 	if cur == nil {
-		return removeAllTracked(ctx, prevCtx, prev, offset, trail)
+		return removeAllTracked(ctx, prevCtx, prev, offset, path)
 	}
 
 	if prevCtx.height == 0 && curCtx.height == 0 {
-		return diffLeavesTrackedWithNodeSink(ctx, curCtx.bitWidth, prev, cur, offset, b, sink, trail)
+		return diffLeavesTrackedWithNodeSink(ctx, curCtx.bitWidth, prev, cur, offset, b, sink, path)
 	}
 
 	var changes []*TrackedChange
-	l := len(trail)
+	l := len(path)
 	if curCtx.height > prevCtx.height {
 		if sink != nil {
 			if b == nil {
@@ -395,9 +395,9 @@ func diffNodeTrackedWithNodeSink(ctx context.Context, prevCtx, curCtx *nodeConte
 				continue
 			}
 
-			subTrail := make([]int, l, l+1)
-			copy(subTrail, trail)
-			subTrail = append(subTrail, i)
+			subPath := make([]int, l, l+1)
+			copy(subPath, path)
+			subPath = append(subPath, i)
 
 			subCtx := &nodeContext{
 				bs:       curCtx.bs,
@@ -412,14 +412,14 @@ func diffNodeTrackedWithNodeSink(ctx context.Context, prevCtx, curCtx *nodeConte
 
 			offs := offset + (uint64(i) * subCount)
 			if i == 0 {
-				cs, err := diffNodeTrackedWithNodeSink(ctx, prevCtx, subCtx, prev, subn, offs, b, sink, subTrail)
+				cs, err := diffNodeTrackedWithNodeSink(ctx, prevCtx, subCtx, prev, subn, offs, b, sink, subPath)
 				if err != nil {
 					return nil, err
 				}
 
 				changes = append(changes, cs...)
 			} else {
-				cs, err := addAllTrackWithNodeSink(ctx, subCtx, subn, offs, b, sink, subTrail)
+				cs, err := addAllTrackWithNodeSink(ctx, subCtx, subn, offs, b, sink, subPath)
 				if err != nil {
 					return nil, err
 				}
@@ -439,9 +439,9 @@ func diffNodeTrackedWithNodeSink(ctx context.Context, prevCtx, curCtx *nodeConte
 				continue
 			}
 
-			subTrail := make([]int, l, l+1)
-			copy(subTrail, trail)
-			subTrail = append(subTrail, i)
+			subPath := make([]int, l, l+1)
+			copy(subPath, path)
+			subPath = append(subPath, i)
 
 			subCtx := &nodeContext{
 				bs:       prevCtx.bs,
@@ -458,14 +458,14 @@ func diffNodeTrackedWithNodeSink(ctx context.Context, prevCtx, curCtx *nodeConte
 
 			if i == 0 {
 				sunk = true
-				cs, err := diffNodeTrackedWithNodeSink(ctx, subCtx, curCtx, subn, cur, offs, b, sink, trail) // current node is sunk in diffNodeTrackedWithNodeSink
+				cs, err := diffNodeTrackedWithNodeSink(ctx, subCtx, curCtx, subn, cur, offs, b, sink, path) // current node is sunk in diffNodeTrackedWithNodeSink
 				if err != nil {
 					return nil, err
 				}
 
 				changes = append(changes, cs...)
 			} else {
-				cs, err := removeAllTracked(ctx, subCtx, subn, offs, subTrail)
+				cs, err := removeAllTracked(ctx, subCtx, subn, offs, subPath)
 				if err != nil {
 					return nil, err
 				}
@@ -530,9 +530,9 @@ func diffNodeTrackedWithNodeSink(ctx context.Context, prevCtx, curCtx *nodeConte
 			continue
 		}
 
-		subTrail := make([]int, l, l+1)
-		copy(subTrail, trail)
-		subTrail = append(subTrail, i)
+		subPath := make([]int, l, l+1)
+		copy(subPath, path)
+		subPath = append(subPath, i)
 
 		// Previous had link, current did not
 		if prev.links[i] != nil && cur.links[i] == nil {
@@ -552,7 +552,7 @@ func diffNodeTrackedWithNodeSink(ctx context.Context, prevCtx, curCtx *nodeConte
 			}
 
 			offs := offset + (uint64(i) * subCount)
-			cs, err := removeAllTracked(ctx, subCtx, subn, offs, subTrail)
+			cs, err := removeAllTracked(ctx, subCtx, subn, offs, subPath)
 			if err != nil {
 				return nil, err
 			}
@@ -580,7 +580,7 @@ func diffNodeTrackedWithNodeSink(ctx context.Context, prevCtx, curCtx *nodeConte
 			}
 
 			offs := offset + (uint64(i) * subCount)
-			cs, err := addAllTrackWithNodeSink(ctx, subCtx, subn, offs, b, sink, subTrail)
+			cs, err := addAllTrackWithNodeSink(ctx, subCtx, subn, offs, b, sink, subPath)
 			if err != nil {
 				return nil, err
 			}
@@ -619,7 +619,7 @@ func diffNodeTrackedWithNodeSink(ctx context.Context, prevCtx, curCtx *nodeConte
 
 		offs := offset + (uint64(i) * subCount)
 
-		cs, err := diffNodeTrackedWithNodeSink(ctx, prevSubCtx, curSubCtx, prevSubn, curSubn, offs, b, sink, subTrail)
+		cs, err := diffNodeTrackedWithNodeSink(ctx, prevSubCtx, curSubCtx, prevSubn, curSubn, offs, b, sink, subPath)
 		if err != nil {
 			return nil, err
 		}
@@ -764,7 +764,7 @@ func diffLeaves(prev, cur *node, offset uint64) ([]*Change, error) {
 	return changes, nil
 }
 
-func diffLeavesTrackedWithNodeSink(ctx context.Context, bitWidth uint, prev, cur *node, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, trail []int) ([]*TrackedChange, error) {
+func diffLeavesTrackedWithNodeSink(ctx context.Context, bitWidth uint, prev, cur *node, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, path []int) ([]*TrackedChange, error) {
 	if len(prev.values) != len(cur.values) {
 		return nil, fmt.Errorf("node leaves have different numbers of values (prev=%d, cur=%d)", len(prev.values), len(cur.values))
 	}
@@ -787,11 +787,11 @@ func diffLeavesTrackedWithNodeSink(ctx context.Context, bitWidth uint, prev, cur
 	}
 
 	var changes []*TrackedChange
-	l := len(trail)
+	l := len(path)
 	for i, prevVal := range prev.values {
-		subTrail := make([]int, l, l+1)
-		copy(subTrail, trail)
-		subTrail = append(subTrail, i)
+		subPath := make([]int, l, l+1)
+		copy(subPath, path)
+		subPath = append(subPath, i)
 		index := offset + uint64(i)
 
 		curVal := cur.values[i]
@@ -807,7 +807,7 @@ func diffLeavesTrackedWithNodeSink(ctx context.Context, bitWidth uint, prev, cur
 					Before: nil,
 					After:  curVal,
 				},
-				Path: subTrail,
+				Path: subPath,
 			})
 
 			continue
@@ -821,7 +821,7 @@ func diffLeavesTrackedWithNodeSink(ctx context.Context, bitWidth uint, prev, cur
 					Before: prevVal,
 					After:  nil,
 				},
-				Path: subTrail,
+				Path: subPath,
 			})
 
 			continue
@@ -835,7 +835,7 @@ func diffLeavesTrackedWithNodeSink(ctx context.Context, bitWidth uint, prev, cur
 					Before: prevVal,
 					After:  curVal,
 				},
-				Path: subTrail,
+				Path: subPath,
 			})
 		}
 
