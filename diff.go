@@ -27,14 +27,23 @@ const (
 // Change represents a change to a DAG and contains a reference to the old and
 // new CIDs.
 type Change struct {
-	Type           ChangeType
-	Key            uint64
-	Before         *cbg.Deferred
-	After          *cbg.Deferred
-	SelectorSuffix []int
+	Type   ChangeType
+	Key    uint64
+	Before *cbg.Deferred
+	After  *cbg.Deferred
+}
+
+type TrackedChange struct {
+	Change Change
+	Path   []int
 }
 
 func (ch Change) String() string {
+	b, _ := json.Marshal(ch)
+	return string(b)
+}
+
+func (ch TrackedChange) String() string {
 	b, _ := json.Marshal(ch)
 	return string(b)
 }
@@ -80,7 +89,7 @@ func Diff(ctx context.Context, prevBs, curBs cbor.IpldStore, prev, cur cid.Cid, 
 
 // DiffTrackedWithNodeSink returns a set of changes that transform node 'a' into node 'b'. opts are applied to both prev and cur.
 // it associates selector suffixes with the emitted Change set and sinks all unique nodes encountered under the current CID to the provided CBORUnmarshaler
-func DiffTrackedWithNodeSink(ctx context.Context, prevBs, curBs cbor.IpldStore, prev, cur cid.Cid, b *bytes.Buffer, sink cbg.CBORUnmarshaler, trail []int, opts ...Option) ([]*Change, error) {
+func DiffTrackedWithNodeSink(ctx context.Context, prevBs, curBs cbor.IpldStore, prev, cur cid.Cid, b *bytes.Buffer, sink cbg.CBORUnmarshaler, opts ...Option) ([]*TrackedChange, error) {
 	prevAmt, err := LoadAMT(ctx, prevBs, prev, opts...)
 	if err != nil {
 		return nil, xerrors.Errorf("loading previous root: %w", err)
@@ -110,12 +119,12 @@ func DiffTrackedWithNodeSink(ctx context.Context, prevBs, curBs cbor.IpldStore, 
 
 	// edge case of diffing an empty AMT against non-empty
 	if prevAmt.count == 0 && curAmt.count != 0 {
-		return addAllTrackWithNodeSink(ctx, curCtx, curAmt.node, 0, b, sink, trail)
+		return addAllTrackWithNodeSink(ctx, curCtx, curAmt.node, 0, b, sink, []int{})
 	}
 	if prevAmt.count != 0 && curAmt.count == 0 {
-		return removeAllTracked(ctx, prevCtx, prevAmt.node, 0, trail)
+		return removeAllTracked(ctx, prevCtx, prevAmt.node, 0, []int{})
 	}
-	return diffNodeTrackedWithNodeSink(ctx, prevCtx, curCtx, prevAmt.node, curAmt.node, 0, b, sink, trail)
+	return diffNodeTrackedWithNodeSink(ctx, prevCtx, curCtx, prevAmt.node, curAmt.node, 0, b, sink, []int{})
 }
 
 type nodeContext struct {
@@ -343,7 +352,7 @@ func diffNode(ctx context.Context, prevCtx, curCtx *nodeContext, prev, cur *node
 	return changes, nil
 }
 
-func diffNodeTrackedWithNodeSink(ctx context.Context, prevCtx, curCtx *nodeContext, prev, cur *node, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, trail []int) ([]*Change, error) {
+func diffNodeTrackedWithNodeSink(ctx context.Context, prevCtx, curCtx *nodeContext, prev, cur *node, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, trail []int) ([]*TrackedChange, error) {
 	if prev == nil && cur == nil {
 		return nil, nil
 	}
@@ -360,14 +369,35 @@ func diffNodeTrackedWithNodeSink(ctx context.Context, prevCtx, curCtx *nodeConte
 		return diffLeavesTrackedWithNodeSink(ctx, curCtx.bitWidth, prev, cur, offset, b, sink, trail)
 	}
 
-	var changes []*Change
-
+	var changes []*TrackedChange
+	l := len(trail)
 	if curCtx.height > prevCtx.height {
+		if sink != nil {
+			if b == nil {
+				b = bytes.NewBuffer(nil)
+			}
+			b.Reset()
+			internalNode, err := cur.compact(ctx, curCtx.bitWidth, 0)
+			if err != nil {
+				return nil, err
+			}
+			if err := internalNode.MarshalCBOR(b); err != nil {
+				return nil, err
+			}
+			if err := sink.UnmarshalCBOR(b); err != nil {
+				return nil, err
+			}
+		}
+
 		subCount := curCtx.nodesAtHeight()
 		for i, ln := range cur.links {
 			if ln == nil || ln.cid == cid.Undef {
 				continue
 			}
+
+			subTrail := make([]int, l, l+1)
+			copy(subTrail, trail)
+			subTrail = append(subTrail, i)
 
 			subCtx := &nodeContext{
 				bs:       curCtx.bs,
@@ -382,14 +412,14 @@ func diffNodeTrackedWithNodeSink(ctx context.Context, prevCtx, curCtx *nodeConte
 
 			offs := offset + (uint64(i) * subCount)
 			if i == 0 {
-				cs, err := diffNodeTrackedWithNodeSink(ctx, prevCtx, subCtx, prev, subn, offs, b, sink, trail)
+				cs, err := diffNodeTrackedWithNodeSink(ctx, prevCtx, subCtx, prev, subn, offs, b, sink, subTrail)
 				if err != nil {
 					return nil, err
 				}
 
 				changes = append(changes, cs...)
 			} else {
-				cs, err := addAllTrackWithNodeSink(ctx, subCtx, subn, offs, b, sink, trail)
+				cs, err := addAllTrackWithNodeSink(ctx, subCtx, subn, offs, b, sink, subTrail)
 				if err != nil {
 					return nil, err
 				}
@@ -403,10 +433,15 @@ func diffNodeTrackedWithNodeSink(ctx context.Context, prevCtx, curCtx *nodeConte
 
 	if prevCtx.height > curCtx.height {
 		subCount := prevCtx.nodesAtHeight()
+		sunk := false
 		for i, ln := range prev.links {
 			if ln == nil || ln.cid == cid.Undef {
 				continue
 			}
+
+			subTrail := make([]int, l, l+1)
+			copy(subTrail, trail)
+			subTrail = append(subTrail, i)
 
 			subCtx := &nodeContext{
 				bs:       prevCtx.bs,
@@ -422,19 +457,36 @@ func diffNodeTrackedWithNodeSink(ctx context.Context, prevCtx, curCtx *nodeConte
 			offs := offset + (uint64(i) * subCount)
 
 			if i == 0 {
-				cs, err := diffNodeTrackedWithNodeSink(ctx, subCtx, curCtx, subn, cur, offs, b, sink, trail)
+				sunk = true
+				cs, err := diffNodeTrackedWithNodeSink(ctx, subCtx, curCtx, subn, cur, offs, b, sink, trail) // current node is sunk in diffNodeTrackedWithNodeSink
 				if err != nil {
 					return nil, err
 				}
 
 				changes = append(changes, cs...)
 			} else {
-				cs, err := removeAllTracked(ctx, subCtx, subn, offs, trail)
+				cs, err := removeAllTracked(ctx, subCtx, subn, offs, subTrail)
 				if err != nil {
 					return nil, err
 				}
 
 				changes = append(changes, cs...)
+			}
+		}
+		if !sunk && sink != nil {
+			if b == nil {
+				b = bytes.NewBuffer(nil)
+			}
+			b.Reset()
+			internalNode, err := cur.compact(ctx, curCtx.bitWidth, 0)
+			if err != nil {
+				return nil, err
+			}
+			if err := internalNode.MarshalCBOR(b); err != nil {
+				return nil, err
+			}
+			if err := sink.UnmarshalCBOR(b); err != nil {
+				return nil, err
 			}
 		}
 
@@ -454,12 +506,33 @@ func diffNodeTrackedWithNodeSink(ctx context.Context, prevCtx, curCtx *nodeConte
 		return nil, fmt.Errorf("nodes have no links")
 	}
 
+	if sink != nil {
+		if b == nil {
+			b = bytes.NewBuffer(nil)
+		}
+		b.Reset()
+		internalNode, err := cur.compact(ctx, curCtx.bitWidth, 0)
+		if err != nil {
+			return nil, err
+		}
+		if err := internalNode.MarshalCBOR(b); err != nil {
+			return nil, err
+		}
+		if err := sink.UnmarshalCBOR(b); err != nil {
+			return nil, err
+		}
+	}
+
 	subCount := prevCtx.nodesAtHeight()
 	for i := range prev.links {
 		// Neither previous or current links are in use
 		if prev.links[i] == nil && cur.links[i] == nil {
 			continue
 		}
+
+		subTrail := make([]int, l, l+1)
+		copy(subTrail, trail)
+		subTrail = append(subTrail, i)
 
 		// Previous had link, current did not
 		if prev.links[i] != nil && cur.links[i] == nil {
@@ -479,7 +552,7 @@ func diffNodeTrackedWithNodeSink(ctx context.Context, prevCtx, curCtx *nodeConte
 			}
 
 			offs := offset + (uint64(i) * subCount)
-			cs, err := removeAllTracked(ctx, subCtx, subn, offs, trail)
+			cs, err := removeAllTracked(ctx, subCtx, subn, offs, subTrail)
 			if err != nil {
 				return nil, err
 			}
@@ -507,7 +580,7 @@ func diffNodeTrackedWithNodeSink(ctx context.Context, prevCtx, curCtx *nodeConte
 			}
 
 			offs := offset + (uint64(i) * subCount)
-			cs, err := addAllTrackWithNodeSink(ctx, subCtx, subn, offs, b, sink, trail)
+			cs, err := addAllTrackWithNodeSink(ctx, subCtx, subn, offs, b, sink, subTrail)
 			if err != nil {
 				return nil, err
 			}
@@ -546,7 +619,7 @@ func diffNodeTrackedWithNodeSink(ctx context.Context, prevCtx, curCtx *nodeConte
 
 		offs := offset + (uint64(i) * subCount)
 
-		cs, err := diffNodeTrackedWithNodeSink(ctx, prevSubCtx, curSubCtx, prevSubn, curSubn, offs, b, sink, trail)
+		cs, err := diffNodeTrackedWithNodeSink(ctx, prevSubCtx, curSubCtx, prevSubn, curSubn, offs, b, sink, subTrail)
 		if err != nil {
 			return nil, err
 		}
@@ -576,15 +649,17 @@ func addAll(ctx context.Context, nc *nodeContext, node *node, offset uint64) ([]
 	return changes, nil
 }
 
-func addAllTrackWithNodeSink(ctx context.Context, nc *nodeContext, node *node, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, trail []int) ([]*Change, error) {
-	var changes []*Change
-	err := node.forEachAtTrackedWithNodeSink(ctx, nc.bs, trail, nc.bitWidth, nc.height, 0, offset, b, sink, func(index uint64, deferred *cbg.Deferred, selectorSuffix []int) error {
-		changes = append(changes, &Change{
-			Type:           Add,
-			Key:            index,
-			Before:         nil,
-			After:          deferred,
-			SelectorSuffix: selectorSuffix,
+func addAllTrackWithNodeSink(ctx context.Context, nc *nodeContext, node *node, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, initialPath []int) ([]*TrackedChange, error) {
+	var changes []*TrackedChange
+	err := node.forEachAtTrackedWithNodeSink(ctx, nc.bs, initialPath, nc.bitWidth, nc.height, 0, offset, b, sink, func(index uint64, deferred *cbg.Deferred, selectorSuffix []int) error {
+		changes = append(changes, &TrackedChange{
+			Change: Change{
+				Type:   Add,
+				Key:    index,
+				Before: nil,
+				After:  deferred,
+			},
+			Path: selectorSuffix,
 		})
 
 		return nil
@@ -616,16 +691,18 @@ func removeAll(ctx context.Context, nc *nodeContext, node *node, offset uint64) 
 	return changes, nil
 }
 
-func removeAllTracked(ctx context.Context, nc *nodeContext, node *node, offset uint64, trail []int) ([]*Change, error) {
-	var changes []*Change
+func removeAllTracked(ctx context.Context, nc *nodeContext, node *node, offset uint64, initialPath []int) ([]*TrackedChange, error) {
+	var changes []*TrackedChange
 
-	err := node.forEachAtTracked(ctx, nc.bs, trail, nc.bitWidth, nc.height, 0, offset, func(index uint64, deferred *cbg.Deferred, selectorSuffix []int) error {
-		changes = append(changes, &Change{
-			Type:           Remove,
-			Key:            index,
-			Before:         deferred,
-			After:          nil,
-			SelectorSuffix: selectorSuffix,
+	err := node.forEachAtTracked(ctx, nc.bs, initialPath, nc.bitWidth, nc.height, 0, offset, func(index uint64, deferred *cbg.Deferred, selectorSuffix []int) error {
+		changes = append(changes, &TrackedChange{
+			Change: Change{
+				Type:   Remove,
+				Key:    index,
+				Before: deferred,
+				After:  nil,
+			},
+			Path: selectorSuffix,
 		})
 
 		return nil
@@ -687,7 +764,7 @@ func diffLeaves(prev, cur *node, offset uint64) ([]*Change, error) {
 	return changes, nil
 }
 
-func diffLeavesTrackedWithNodeSink(ctx context.Context, bitWidth uint, prev, cur *node, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, trail []int) ([]*Change, error) {
+func diffLeavesTrackedWithNodeSink(ctx context.Context, bitWidth uint, prev, cur *node, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, trail []int) ([]*TrackedChange, error) {
 	if len(prev.values) != len(cur.values) {
 		return nil, fmt.Errorf("node leaves have different numbers of values (prev=%d, cur=%d)", len(prev.values), len(cur.values))
 	}
@@ -709,7 +786,7 @@ func diffLeavesTrackedWithNodeSink(ctx context.Context, bitWidth uint, prev, cur
 		}
 	}
 
-	var changes []*Change
+	var changes []*TrackedChange
 	l := len(trail)
 	for i, prevVal := range prev.values {
 		subTrail := make([]int, l, l+1)
@@ -723,36 +800,42 @@ func diffLeavesTrackedWithNodeSink(ctx context.Context, bitWidth uint, prev, cur
 		}
 
 		if prevVal == nil && curVal != nil {
-			changes = append(changes, &Change{
-				Type:           Add,
-				Key:            index,
-				Before:         nil,
-				After:          curVal,
-				SelectorSuffix: subTrail,
+			changes = append(changes, &TrackedChange{
+				Change: Change{
+					Type:   Add,
+					Key:    index,
+					Before: nil,
+					After:  curVal,
+				},
+				Path: subTrail,
 			})
 
 			continue
 		}
 
 		if prevVal != nil && curVal == nil {
-			changes = append(changes, &Change{
-				Type:           Remove,
-				Key:            index,
-				Before:         prevVal,
-				After:          nil,
-				SelectorSuffix: subTrail,
+			changes = append(changes, &TrackedChange{
+				Change: Change{
+					Type:   Remove,
+					Key:    index,
+					Before: prevVal,
+					After:  nil,
+				},
+				Path: subTrail,
 			})
 
 			continue
 		}
 
 		if !bytes.Equal(prevVal.Raw, curVal.Raw) {
-			changes = append(changes, &Change{
-				Type:           Modify,
-				Key:            index,
-				Before:         prevVal,
-				After:          curVal,
-				SelectorSuffix: subTrail,
+			changes = append(changes, &TrackedChange{
+				Change: Change{
+					Type:   Modify,
+					Key:    index,
+					Before: prevVal,
+					After:  curVal,
+				},
+				Path: subTrail,
 			})
 		}
 
