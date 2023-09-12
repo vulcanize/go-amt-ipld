@@ -804,7 +804,7 @@ dispatcherLoop:
 	return grp.Wait()
 }
 
-func (n *node) forEachAtParallelTrackedWithNodeSink(ctx context.Context, bs cbor.IpldStore, trail []int, bitWidth uint, height int, start, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error, concurrency int) error {
+func (n *node) forEachAtParallelTrackedWithNodeSink(ctx context.Context, bs cbor.IpldStore, trail []int, bitWidth uint, height int, start, offset uint64, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error, concurrency int) error {
 	// Setup synchronization
 	grp, errGrpCtx := errgroup.WithContext(ctx)
 
@@ -856,7 +856,7 @@ func (n *node) forEachAtParallelTrackedWithNodeSink(ctx context.Context, bs cbor
 					if err != nil {
 						return err
 					}
-					nextChildren, err := nextNode.walkChildrenTrackedWithNodeSink(ctx, bitWidth, linksToVisitContext[cursor.Index].trail, linksToVisitContext[cursor.Index].height, start, linksToVisitContext[cursor.Index].offset, b, sink, cb)
+					nextChildren, err := nextNode.walkChildrenTrackedWithNodeSink(ctx, bitWidth, linksToVisitContext[cursor.Index].trail, linksToVisitContext[cursor.Index].height, start, linksToVisitContext[cursor.Index].offset, sink, cb)
 					if err != nil {
 						return err
 					}
@@ -870,7 +870,7 @@ func (n *node) forEachAtParallelTrackedWithNodeSink(ctx context.Context, bs cbor
 					}
 				}
 				for j, cachedNode := range cachedNodes {
-					nextChildren, err := cachedNode.walkChildrenTrackedWithNodeSink(ctx, bitWidth, cachedNodesContext[j].trail, cachedNodesContext[j].height, start, cachedNodesContext[j].offset, b, sink, cb)
+					nextChildren, err := cachedNode.walkChildrenTrackedWithNodeSink(ctx, bitWidth, cachedNodesContext[j].trail, cachedNodesContext[j].height, start, cachedNodesContext[j].offset, sink, cb)
 					if err != nil {
 						return err
 					}
@@ -898,7 +898,7 @@ func (n *node) forEachAtParallelTrackedWithNodeSink(ctx context.Context, bs cbor
 	var inProgress int
 
 	// start the walk
-	children, err := n.walkChildrenTrackedWithNodeSink(ctx, bitWidth, trail, height, start, offset, b, sink, cb)
+	children, err := n.walkChildrenTrackedWithNodeSink(ctx, bitWidth, trail, height, start, offset, sink, cb)
 	// if we hit an error or there are no children, then we're done
 	if err != nil || children == nil {
 		close(feed)
@@ -1048,12 +1048,9 @@ func (n *node) walkChildrenTracked(ctx context.Context, bitWidth uint, trail []i
 	return &listChildrenTracked{children: children}, nil
 }
 
-func (n *node) walkChildrenTrackedWithNodeSink(ctx context.Context, bitWidth uint, trail []int, height int, start, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) (*listChildrenTracked, error) {
+func (n *node) walkChildrenTrackedWithNodeSink(ctx context.Context, bitWidth uint, trail []int, height int, start, offset uint64, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) (*listChildrenTracked, error) {
 	if sink != nil {
-		if b == nil {
-			b = bytes.NewBuffer(nil)
-		}
-		b.Reset()
+		b := bytes.NewBuffer(nil)
 		internalNode, err := n.compact(ctx, bitWidth, height)
 		if err != nil {
 			return nil, err

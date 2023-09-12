@@ -1248,7 +1248,6 @@ func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
 		for i, v := range indexes {
 			foundVals[i] = v
 		}
-		b := new(bytes.Buffer)
 		counterSink := new(CBORSinkCounter)
 		expectedTrails := make(map[string]struct{}, target)
 
@@ -1262,7 +1261,7 @@ func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
 			}
 		}
 
-		err = a.ForEachParallelTrackedWithNodeSink(ctx, 16, b, counterSink, func(i uint64, v *cbg.Deferred, trail []int) error {
+		err = a.ForEachParallelTrackedWithNodeSink(ctx, 16, counterSink, func(i uint64, v *cbg.Deferred, trail []int) error {
 			trailStr := ""
 			for i, t := range trail {
 				if i != len(trail)-1 {
@@ -1309,7 +1308,6 @@ func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
 		for i, v := range indexes {
 			foundVals[i] = v
 		}
-		b = new(bytes.Buffer)
 		counterSink = new(CBORSinkCounter)
 		expectedTrails = make(map[string]struct{}, 64)
 
@@ -1322,7 +1320,7 @@ func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
 			}
 		}
 
-		err = a.ForEachParallelTrackedWithNodeSink(ctx, 16, b, counterSink, func(i uint64, v *cbg.Deferred, trail []int) error {
+		err = a.ForEachParallelTrackedWithNodeSink(ctx, 16, counterSink, func(i uint64, v *cbg.Deferred, trail []int) error {
 			trailStr := ""
 			for i, t := range trail {
 				if i != len(trail)-1 {
@@ -1366,7 +1364,6 @@ func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
 		for i, v := range indexes {
 			foundVals[i] = v
 		}
-		b = new(bytes.Buffer)
 		counterSink = new(CBORSinkCounter)
 		expectedTrails = make(map[string]struct{}, 64)
 
@@ -1379,7 +1376,7 @@ func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
 			}
 		}
 
-		err = a.ForEachParallelTrackedWithNodeSink(ctx, 16, b, counterSink, func(i uint64, v *cbg.Deferred, trail []int) error {
+		err = a.ForEachParallelTrackedWithNodeSink(ctx, 16, counterSink, func(i uint64, v *cbg.Deferred, trail []int) error {
 			trailStr := ""
 			for i, t := range trail {
 				if i != len(trail)-1 {
