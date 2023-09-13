@@ -355,16 +355,16 @@ func (n *node) forEachAt(ctx context.Context, bs cbor.IpldStore, bitWidth uint, 
 // figure out the appropriate 'index', since indexes are not stored with values
 // and can only be determined by knowing how far a leaf node is removed from
 // the left-most leaf node.
-// This method also provides the trail of indices at each height/level in the way to the current node, which can be used to formulate a selector suffixes
-func (n *node) forEachAtTracked(ctx context.Context, bs cbor.IpldStore, trail []int, bitWidth uint, height int, start, offset uint64, cb func(uint64, *cbg.Deferred, []int) error) error {
-	l := len(trail)
+// This method also provides the path of indices at each height/level in the way to the current node, which can be used to formulate a selector suffixes
+func (n *node) forEachAtTracked(ctx context.Context, bs cbor.IpldStore, path []int, bitWidth uint, height int, start, offset uint64, cb func(uint64, *cbg.Deferred, []int) error) error {
+	l := len(path)
 	if height == 0 {
 		// height=0 means we're at leaf nodes and get to use our callback
 		for i, v := range n.values {
 			if v != nil {
-				subTrail := make([]int, l, l+1)
-				copy(subTrail, trail)
-				subTrail = append(subTrail, i)
+				subPath := make([]int, l, l+1)
+				copy(subPath, path)
+				subPath = append(subPath, i)
 
 				ix := offset + uint64(i)
 				if ix < start {
@@ -375,7 +375,7 @@ func (n *node) forEachAtTracked(ctx context.Context, bs cbor.IpldStore, trail []
 
 				// use 'offset' to determine the actual index for this element, it
 				// tells us how distant we are from the left-most leaf node
-				if err := cb(ix, v, subTrail); err != nil {
+				if err := cb(ix, v, subPath); err != nil {
 					return err
 				}
 			}
@@ -390,9 +390,9 @@ func (n *node) forEachAtTracked(ctx context.Context, bs cbor.IpldStore, trail []
 			continue
 		}
 
-		subTrail := make([]int, l, l+1)
-		copy(subTrail, trail)
-		subTrail = append(subTrail, i)
+		subPath := make([]int, l, l+1)
+		copy(subPath, path)
+		subPath = append(subPath, i)
 
 		// 'offs' tells us the index of the left-most element of the subtree defined
 		// by 'sub'
@@ -412,7 +412,7 @@ func (n *node) forEachAtTracked(ctx context.Context, bs cbor.IpldStore, trail []
 
 		// recurse into the child node, providing 'offs' to tell it where it's
 		// located in the tree
-		if err := subn.forEachAtTracked(ctx, bs, subTrail, bitWidth, height-1, start, offs, cb); err != nil {
+		if err := subn.forEachAtTracked(ctx, bs, subPath, bitWidth, height-1, start, offs, cb); err != nil {
 			return err
 		}
 	}
@@ -426,8 +426,8 @@ func (n *node) forEachAtTracked(ctx context.Context, bs cbor.IpldStore, trail []
 // figure out the appropriate 'index', since indexes are not stored with values
 // and can only be determined by knowing how far a leaf node is removed from
 // the left-most leaf node.
-// This method also provides the trail of indices at each height/level in the way to the current node, which can be used to formulate a selector suffixes
-func (n *node) forEachAtTrackedWithNodeSink(ctx context.Context, bs cbor.IpldStore, trail []int, bitWidth uint, height int, start, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) error {
+// This method also provides the path of indices at each height/level in the way to the current node, which can be used to formulate a selector suffixes
+func (n *node) forEachAtTrackedWithNodeSink(ctx context.Context, bs cbor.IpldStore, path []int, bitWidth uint, height int, start, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) error {
 	if sink != nil {
 		if b == nil {
 			b = bytes.NewBuffer(nil)
@@ -444,14 +444,14 @@ func (n *node) forEachAtTrackedWithNodeSink(ctx context.Context, bs cbor.IpldSto
 			return err
 		}
 	}
-	l := len(trail)
+	l := len(path)
 	if height == 0 {
 		// height=0 means we're at leaf nodes and get to use our callback
 		for i, v := range n.values {
 			if v != nil {
-				subTrail := make([]int, l, l+1)
-				copy(subTrail, trail)
-				subTrail = append(subTrail, i)
+				subPath := make([]int, l, l+1)
+				copy(subPath, path)
+				subPath = append(subPath, i)
 
 				ix := offset + uint64(i)
 				if ix < start {
@@ -462,7 +462,7 @@ func (n *node) forEachAtTrackedWithNodeSink(ctx context.Context, bs cbor.IpldSto
 
 				// use 'offset' to determine the actual index for this element, it
 				// tells us how distant we are from the left-most leaf node
-				if err := cb(ix, v, subTrail); err != nil {
+				if err := cb(ix, v, subPath); err != nil {
 					return err
 				}
 			}
@@ -477,9 +477,9 @@ func (n *node) forEachAtTrackedWithNodeSink(ctx context.Context, bs cbor.IpldSto
 			continue
 		}
 
-		subTrail := make([]int, l, l+1)
-		copy(subTrail, trail)
-		subTrail = append(subTrail, i)
+		subPath := make([]int, l, l+1)
+		copy(subPath, path)
+		subPath = append(subPath, i)
 
 		// 'offs' tells us the index of the left-most element of the subtree defined
 		// by 'sub'
@@ -499,7 +499,7 @@ func (n *node) forEachAtTrackedWithNodeSink(ctx context.Context, bs cbor.IpldSto
 
 		// recurse into the child node, providing 'offs' to tell it where it's
 		// located in the tree
-		if err := subn.forEachAtTracked(ctx, bs, subTrail, bitWidth, height-1, start, offs, cb); err != nil {
+		if err := subn.forEachAtTracked(ctx, bs, subPath, bitWidth, height-1, start, offs, cb); err != nil {
 			return err
 		}
 	}
@@ -514,7 +514,7 @@ type descentContext struct {
 type trackedDescentContext struct {
 	height int
 	offset uint64
-	trail  []int
+	path   []int
 }
 
 type child struct {
@@ -669,7 +669,7 @@ dispatcherLoop:
 	return grp.Wait()
 }
 
-func (n *node) forEachAtParallelTracked(ctx context.Context, bs cbor.IpldStore, trail []int, bitWidth uint, height int, start, offset uint64, cb func(uint64, *cbg.Deferred, []int) error, concurrency int) error {
+func (n *node) forEachAtParallelTracked(ctx context.Context, bs cbor.IpldStore, path []int, bitWidth uint, height int, start, offset uint64, cb func(uint64, *cbg.Deferred, []int) error, concurrency int) error {
 	// Setup synchronization
 	grp, errGrpCtx := errgroup.WithContext(ctx)
 
@@ -721,7 +721,7 @@ func (n *node) forEachAtParallelTracked(ctx context.Context, bs cbor.IpldStore, 
 					if err != nil {
 						return err
 					}
-					nextChildren, err := nextNode.walkChildrenTracked(ctx, bitWidth, linksToVisitContext[cursor.Index].trail, linksToVisitContext[cursor.Index].height, start, linksToVisitContext[cursor.Index].offset, cb)
+					nextChildren, err := nextNode.walkChildrenTracked(ctx, bitWidth, linksToVisitContext[cursor.Index].path, linksToVisitContext[cursor.Index].height, start, linksToVisitContext[cursor.Index].offset, cb)
 					if err != nil {
 						return err
 					}
@@ -735,7 +735,7 @@ func (n *node) forEachAtParallelTracked(ctx context.Context, bs cbor.IpldStore, 
 					}
 				}
 				for j, cachedNode := range cachedNodes {
-					nextChildren, err := cachedNode.walkChildrenTracked(ctx, bitWidth, cachedNodesContext[j].trail, cachedNodesContext[j].height, start, cachedNodesContext[j].offset, cb)
+					nextChildren, err := cachedNode.walkChildrenTracked(ctx, bitWidth, cachedNodesContext[j].path, cachedNodesContext[j].height, start, cachedNodesContext[j].offset, cb)
 					if err != nil {
 						return err
 					}
@@ -763,7 +763,7 @@ func (n *node) forEachAtParallelTracked(ctx context.Context, bs cbor.IpldStore, 
 	var inProgress int
 
 	// start the walk
-	children, err := n.walkChildrenTracked(ctx, bitWidth, trail, height, start, offset, cb)
+	children, err := n.walkChildrenTracked(ctx, bitWidth, path, height, start, offset, cb)
 	// if we hit an error or there are no children, then we're done
 	if err != nil || children == nil {
 		close(feed)
@@ -804,7 +804,7 @@ dispatcherLoop:
 	return grp.Wait()
 }
 
-func (n *node) forEachAtParallelTrackedWithNodeSink(ctx context.Context, bs cbor.IpldStore, trail []int, bitWidth uint, height int, start, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error, concurrency int) error {
+func (n *node) forEachAtParallelTrackedWithNodeSink(ctx context.Context, bs cbor.IpldStore, path []int, bitWidth uint, height int, start, offset uint64, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error, concurrency int) error {
 	// Setup synchronization
 	grp, errGrpCtx := errgroup.WithContext(ctx)
 
@@ -856,7 +856,7 @@ func (n *node) forEachAtParallelTrackedWithNodeSink(ctx context.Context, bs cbor
 					if err != nil {
 						return err
 					}
-					nextChildren, err := nextNode.walkChildrenTrackedWithNodeSink(ctx, bitWidth, linksToVisitContext[cursor.Index].trail, linksToVisitContext[cursor.Index].height, start, linksToVisitContext[cursor.Index].offset, b, sink, cb)
+					nextChildren, err := nextNode.walkChildrenTrackedWithNodeSink(ctx, bitWidth, linksToVisitContext[cursor.Index].path, linksToVisitContext[cursor.Index].height, start, linksToVisitContext[cursor.Index].offset, sink, cb)
 					if err != nil {
 						return err
 					}
@@ -870,7 +870,7 @@ func (n *node) forEachAtParallelTrackedWithNodeSink(ctx context.Context, bs cbor
 					}
 				}
 				for j, cachedNode := range cachedNodes {
-					nextChildren, err := cachedNode.walkChildrenTrackedWithNodeSink(ctx, bitWidth, cachedNodesContext[j].trail, cachedNodesContext[j].height, start, cachedNodesContext[j].offset, b, sink, cb)
+					nextChildren, err := cachedNode.walkChildrenTrackedWithNodeSink(ctx, bitWidth, cachedNodesContext[j].path, cachedNodesContext[j].height, start, cachedNodesContext[j].offset, sink, cb)
 					if err != nil {
 						return err
 					}
@@ -898,7 +898,7 @@ func (n *node) forEachAtParallelTrackedWithNodeSink(ctx context.Context, bs cbor
 	var inProgress int
 
 	// start the walk
-	children, err := n.walkChildrenTrackedWithNodeSink(ctx, bitWidth, trail, height, start, offset, b, sink, cb)
+	children, err := n.walkChildrenTrackedWithNodeSink(ctx, bitWidth, path, height, start, offset, sink, cb)
 	// if we hit an error or there are no children, then we're done
 	if err != nil || children == nil {
 		close(feed)
@@ -988,16 +988,16 @@ func (n *node) walkChildren(ctx context.Context, bitWidth uint, height int, star
 	return &listChildren{children: children}, nil
 }
 
-func (n *node) walkChildrenTracked(ctx context.Context, bitWidth uint, trail []int, height int, start, offset uint64, cb func(uint64, *cbg.Deferred, []int) error) (*listChildrenTracked, error) {
-	l := len(trail)
+func (n *node) walkChildrenTracked(ctx context.Context, bitWidth uint, path []int, height int, start, offset uint64, cb func(uint64, *cbg.Deferred, []int) error) (*listChildrenTracked, error) {
+	l := len(path)
 
 	if height == 0 {
 		// height=0 means we're at leaf nodes and get to use our callback
 		for i, v := range n.values {
 			if v != nil {
-				subTrail := make([]int, l, l+1)
-				copy(subTrail, trail)
-				subTrail = append(subTrail, i)
+				subPath := make([]int, l, l+1)
+				copy(subPath, path)
+				subPath = append(subPath, i)
 
 				ix := offset + uint64(i)
 				if ix < start {
@@ -1008,7 +1008,7 @@ func (n *node) walkChildrenTracked(ctx context.Context, bitWidth uint, trail []i
 
 				// use 'offset' to determine the actual index for this element, it
 				// tells us how distant we are from the left-most leaf node
-				if err := cb(offset+uint64(i), v, subTrail); err != nil {
+				if err := cb(offset+uint64(i), v, subPath); err != nil {
 					return nil, err
 				}
 			}
@@ -1024,9 +1024,9 @@ func (n *node) walkChildrenTracked(ctx context.Context, bitWidth uint, trail []i
 			continue
 		}
 
-		subTrail := make([]int, l, l+1)
-		copy(subTrail, trail)
-		subTrail = append(subTrail, i)
+		subPath := make([]int, l, l+1)
+		copy(subPath, path)
+		subPath = append(subPath, i)
 
 		// 'offs' tells us the index of the left-most element of the subtree defined
 		// by 'sub'
@@ -1041,19 +1041,16 @@ func (n *node) walkChildrenTracked(ctx context.Context, bitWidth uint, trail []i
 		children = append(children, trackedChild{ln, trackedDescentContext{
 			height: height - 1,
 			offset: offs,
-			trail:  subTrail,
+			path:   subPath,
 		}})
 	}
 
 	return &listChildrenTracked{children: children}, nil
 }
 
-func (n *node) walkChildrenTrackedWithNodeSink(ctx context.Context, bitWidth uint, trail []int, height int, start, offset uint64, b *bytes.Buffer, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) (*listChildrenTracked, error) {
+func (n *node) walkChildrenTrackedWithNodeSink(ctx context.Context, bitWidth uint, path []int, height int, start, offset uint64, sink cbg.CBORUnmarshaler, cb func(uint64, *cbg.Deferred, []int) error) (*listChildrenTracked, error) {
 	if sink != nil {
-		if b == nil {
-			b = bytes.NewBuffer(nil)
-		}
-		b.Reset()
+		b := bytes.NewBuffer(nil)
 		internalNode, err := n.compact(ctx, bitWidth, height)
 		if err != nil {
 			return nil, err
@@ -1065,15 +1062,15 @@ func (n *node) walkChildrenTrackedWithNodeSink(ctx context.Context, bitWidth uin
 			return nil, err
 		}
 	}
-	l := len(trail)
+	l := len(path)
 
 	if height == 0 {
 		// height=0 means we're at leaf nodes and get to use our callback
 		for i, v := range n.values {
 			if v != nil {
-				subTrail := make([]int, l, l+1)
-				copy(subTrail, trail)
-				subTrail = append(subTrail, i)
+				subPath := make([]int, l, l+1)
+				copy(subPath, path)
+				subPath = append(subPath, i)
 
 				ix := offset + uint64(i)
 				if ix < start {
@@ -1084,7 +1081,7 @@ func (n *node) walkChildrenTrackedWithNodeSink(ctx context.Context, bitWidth uin
 
 				// use 'offset' to determine the actual index for this element, it
 				// tells us how distant we are from the left-most leaf node
-				if err := cb(offset+uint64(i), v, subTrail); err != nil {
+				if err := cb(offset+uint64(i), v, subPath); err != nil {
 					return nil, err
 				}
 			}
@@ -1100,9 +1097,9 @@ func (n *node) walkChildrenTrackedWithNodeSink(ctx context.Context, bitWidth uin
 			continue
 		}
 
-		subTrail := make([]int, l, l+1)
-		copy(subTrail, trail)
-		subTrail = append(subTrail, i)
+		subPath := make([]int, l, l+1)
+		copy(subPath, path)
+		subPath = append(subPath, i)
 
 		// 'offs' tells us the index of the left-most element of the subtree defined
 		// by 'sub'
@@ -1117,7 +1114,7 @@ func (n *node) walkChildrenTrackedWithNodeSink(ctx context.Context, bitWidth uin
 		children = append(children, trackedChild{ln, trackedDescentContext{
 			height: height - 1,
 			offset: offs,
-			trail:  subTrail,
+			path:   subPath,
 		}})
 	}
 

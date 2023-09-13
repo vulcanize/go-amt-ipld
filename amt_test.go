@@ -1074,30 +1074,30 @@ func TestForEachParallelTracked(t *testing.T) {
 		expectedTrails := make(map[string]struct{}, target)
 		widthInt := int(width)
 		for i := 0; i < widthInt; i++ {
-			trail := ""
+			path := ""
 			for j := 0; j < widthInt; j++ {
-				trail = fmt.Sprintf("%d, ", i)
-				trail += fmt.Sprintf("%d", j)
-				expectedTrails[trail] = struct{}{}
+				path = fmt.Sprintf("%d, ", i)
+				path += fmt.Sprintf("%d", j)
+				expectedTrails[path] = struct{}{}
 			}
 		}
 
-		err = a.ForEachParallelTracked(ctx, 16, func(i uint64, v *cbg.Deferred, trail []int) error {
-			trailStr := ""
-			for i, t := range trail {
-				if i != len(trail)-1 {
-					trailStr += fmt.Sprintf("%d, ", t)
+		err = a.ForEachParallelTracked(ctx, 16, func(i uint64, v *cbg.Deferred, path []int) error {
+			pathStr := ""
+			for i, t := range path {
+				if i != len(path)-1 {
+					pathStr += fmt.Sprintf("%d, ", t)
 				} else {
-					trailStr += fmt.Sprintf("%d", t)
+					pathStr += fmt.Sprintf("%d", t)
 				}
 			}
 			m.Lock()
 			defer m.Unlock()
-			_, ok := expectedTrails[trailStr]
+			_, ok := expectedTrails[pathStr]
 			if !ok {
-				return fmt.Errorf("unexpected trail: %s", trailStr)
+				return fmt.Errorf("unexpected path: %s", pathStr)
 			}
-			delete(expectedTrails, trailStr)
+			delete(expectedTrails, pathStr)
 			delete(foundVals, i)
 			return nil
 		})
@@ -1108,7 +1108,7 @@ func TestForEachParallelTracked(t *testing.T) {
 			t.Fatal("didnt see enough values")
 		}
 		if len(expectedTrails) != 0 {
-			t.Fatal("didnt see expected trails")
+			t.Fatal("didnt see expected paths")
 		}
 
 		c, err := a.Flush(ctx)
@@ -1126,30 +1126,30 @@ func TestForEachParallelTracked(t *testing.T) {
 		expectedTrails = make(map[string]struct{}, 64)
 
 		for i := 0; i < widthInt; i++ {
-			trail := ""
+			path := ""
 			for j := 0; j < widthInt; j++ {
-				trail = fmt.Sprintf("%d, ", i)
-				trail += fmt.Sprintf("%d", j)
-				expectedTrails[trail] = struct{}{}
+				path = fmt.Sprintf("%d, ", i)
+				path += fmt.Sprintf("%d", j)
+				expectedTrails[path] = struct{}{}
 			}
 		}
 
-		err = a.ForEachParallelTracked(ctx, 16, func(i uint64, v *cbg.Deferred, trail []int) error {
-			trailStr := ""
-			for i, t := range trail {
-				if i != len(trail)-1 {
-					trailStr += fmt.Sprintf("%d, ", t)
+		err = a.ForEachParallelTracked(ctx, 16, func(i uint64, v *cbg.Deferred, path []int) error {
+			pathStr := ""
+			for i, t := range path {
+				if i != len(path)-1 {
+					pathStr += fmt.Sprintf("%d, ", t)
 				} else {
-					trailStr += fmt.Sprintf("%d", t)
+					pathStr += fmt.Sprintf("%d", t)
 				}
 			}
 			m.Lock()
 			defer m.Unlock()
-			_, ok := expectedTrails[trailStr]
+			_, ok := expectedTrails[pathStr]
 			if !ok {
-				return fmt.Errorf("unexpected trail: %s", trailStr)
+				return fmt.Errorf("unexpected path: %s", pathStr)
 			}
-			delete(expectedTrails, trailStr)
+			delete(expectedTrails, pathStr)
 			delete(foundVals, i)
 			return nil
 		})
@@ -1160,7 +1160,7 @@ func TestForEachParallelTracked(t *testing.T) {
 			t.Fatal("didnt see enough values")
 		}
 		if len(expectedTrails) != 0 {
-			t.Fatal("didnt see expected trails")
+			t.Fatal("didnt see expected paths")
 		}
 
 		na, err := LoadAMT(ctx, bs, c)
@@ -1178,30 +1178,30 @@ func TestForEachParallelTracked(t *testing.T) {
 		expectedTrails = make(map[string]struct{}, 64)
 
 		for i := 0; i < widthInt; i++ {
-			trail := ""
+			path := ""
 			for j := 0; j < widthInt; j++ {
-				trail = fmt.Sprintf("%d, ", i)
-				trail += fmt.Sprintf("%d", j)
-				expectedTrails[trail] = struct{}{}
+				path = fmt.Sprintf("%d, ", i)
+				path += fmt.Sprintf("%d", j)
+				expectedTrails[path] = struct{}{}
 			}
 		}
 
-		err = a.ForEachParallelTracked(ctx, 16, func(i uint64, v *cbg.Deferred, trail []int) error {
-			trailStr := ""
-			for i, t := range trail {
-				if i != len(trail)-1 {
-					trailStr += fmt.Sprintf("%d, ", t)
+		err = a.ForEachParallelTracked(ctx, 16, func(i uint64, v *cbg.Deferred, path []int) error {
+			pathStr := ""
+			for i, t := range path {
+				if i != len(path)-1 {
+					pathStr += fmt.Sprintf("%d, ", t)
 				} else {
-					trailStr += fmt.Sprintf("%d", t)
+					pathStr += fmt.Sprintf("%d", t)
 				}
 			}
 			m.Lock()
 			defer m.Unlock()
-			_, ok := expectedTrails[trailStr]
+			_, ok := expectedTrails[pathStr]
 			if !ok {
-				return fmt.Errorf("unexpected trail: %s", trailStr)
+				return fmt.Errorf("unexpected path: %s", pathStr)
 			}
-			delete(expectedTrails, trailStr)
+			delete(expectedTrails, pathStr)
 			delete(foundVals, i)
 			return nil
 		})
@@ -1212,7 +1212,7 @@ func TestForEachParallelTracked(t *testing.T) {
 			t.Fatal("didnt see enough values")
 		}
 		if len(expectedTrails) != 0 {
-			t.Fatal("didnt see expected trails")
+			t.Fatal("didnt see expected paths")
 		}
 	})
 }
@@ -1248,36 +1248,35 @@ func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
 		for i, v := range indexes {
 			foundVals[i] = v
 		}
-		b := new(bytes.Buffer)
 		counterSink := new(CBORSinkCounter)
 		expectedTrails := make(map[string]struct{}, target)
 
 		widthInt := int(width)
 		for i := 0; i < widthInt; i++ {
-			trail := ""
+			path := ""
 			for j := 0; j < widthInt; j++ {
-				trail = fmt.Sprintf("%d, ", i)
-				trail += fmt.Sprintf("%d", j)
-				expectedTrails[trail] = struct{}{}
+				path = fmt.Sprintf("%d, ", i)
+				path += fmt.Sprintf("%d", j)
+				expectedTrails[path] = struct{}{}
 			}
 		}
 
-		err = a.ForEachParallelTrackedWithNodeSink(ctx, 16, b, counterSink, func(i uint64, v *cbg.Deferred, trail []int) error {
-			trailStr := ""
-			for i, t := range trail {
-				if i != len(trail)-1 {
-					trailStr += fmt.Sprintf("%d, ", t)
+		err = a.ForEachParallelTrackedWithNodeSink(ctx, 16, counterSink, func(i uint64, v *cbg.Deferred, path []int) error {
+			pathStr := ""
+			for i, t := range path {
+				if i != len(path)-1 {
+					pathStr += fmt.Sprintf("%d, ", t)
 				} else {
-					trailStr += fmt.Sprintf("%d", t)
+					pathStr += fmt.Sprintf("%d", t)
 				}
 			}
 			m.Lock()
 			defer m.Unlock()
-			_, ok := expectedTrails[trailStr]
+			_, ok := expectedTrails[pathStr]
 			if !ok {
-				return fmt.Errorf("unexpected trail: %s", trailStr)
+				return fmt.Errorf("unexpected path: %s", pathStr)
 			}
-			delete(expectedTrails, trailStr)
+			delete(expectedTrails, pathStr)
 			delete(foundVals, i)
 			return nil
 		})
@@ -1288,7 +1287,7 @@ func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
 			t.Fatal("didnt see enough values")
 		}
 		if len(expectedTrails) != 0 {
-			t.Fatal("didnt see expected trails")
+			t.Fatal("didnt see expected paths")
 		}
 		expectedSinkCount := target / width
 		div := expectedSinkCount/width - 1
@@ -1309,35 +1308,34 @@ func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
 		for i, v := range indexes {
 			foundVals[i] = v
 		}
-		b = new(bytes.Buffer)
 		counterSink = new(CBORSinkCounter)
 		expectedTrails = make(map[string]struct{}, 64)
 
 		for i := 0; i < widthInt; i++ {
-			trail := ""
+			path := ""
 			for j := 0; j < widthInt; j++ {
-				trail = fmt.Sprintf("%d, ", i)
-				trail += fmt.Sprintf("%d", j)
-				expectedTrails[trail] = struct{}{}
+				path = fmt.Sprintf("%d, ", i)
+				path += fmt.Sprintf("%d", j)
+				expectedTrails[path] = struct{}{}
 			}
 		}
 
-		err = a.ForEachParallelTrackedWithNodeSink(ctx, 16, b, counterSink, func(i uint64, v *cbg.Deferred, trail []int) error {
-			trailStr := ""
-			for i, t := range trail {
-				if i != len(trail)-1 {
-					trailStr += fmt.Sprintf("%d, ", t)
+		err = a.ForEachParallelTrackedWithNodeSink(ctx, 16, counterSink, func(i uint64, v *cbg.Deferred, path []int) error {
+			pathStr := ""
+			for i, t := range path {
+				if i != len(path)-1 {
+					pathStr += fmt.Sprintf("%d, ", t)
 				} else {
-					trailStr += fmt.Sprintf("%d", t)
+					pathStr += fmt.Sprintf("%d", t)
 				}
 			}
 			m.Lock()
 			defer m.Unlock()
-			_, ok := expectedTrails[trailStr]
+			_, ok := expectedTrails[pathStr]
 			if !ok {
-				return fmt.Errorf("unexpected trail: %s", trailStr)
+				return fmt.Errorf("unexpected path: %s", pathStr)
 			}
-			delete(expectedTrails, trailStr)
+			delete(expectedTrails, pathStr)
 			delete(foundVals, i)
 			return nil
 		})
@@ -1348,7 +1346,7 @@ func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
 			t.Fatal("didnt see enough values")
 		}
 		if len(expectedTrails) != 0 {
-			t.Fatal("didnt see expected trails")
+			t.Fatal("didnt see expected paths")
 		}
 		if counterSink.calledTimes != expectedSinkCount {
 			t.Fatal("didnt call sink enough times")
@@ -1366,35 +1364,34 @@ func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
 		for i, v := range indexes {
 			foundVals[i] = v
 		}
-		b = new(bytes.Buffer)
 		counterSink = new(CBORSinkCounter)
 		expectedTrails = make(map[string]struct{}, 64)
 
 		for i := 0; i < widthInt; i++ {
-			trail := ""
+			path := ""
 			for j := 0; j < widthInt; j++ {
-				trail = fmt.Sprintf("%d, ", i)
-				trail += fmt.Sprintf("%d", j)
-				expectedTrails[trail] = struct{}{}
+				path = fmt.Sprintf("%d, ", i)
+				path += fmt.Sprintf("%d", j)
+				expectedTrails[path] = struct{}{}
 			}
 		}
 
-		err = a.ForEachParallelTrackedWithNodeSink(ctx, 16, b, counterSink, func(i uint64, v *cbg.Deferred, trail []int) error {
-			trailStr := ""
-			for i, t := range trail {
-				if i != len(trail)-1 {
-					trailStr += fmt.Sprintf("%d, ", t)
+		err = a.ForEachParallelTrackedWithNodeSink(ctx, 16, counterSink, func(i uint64, v *cbg.Deferred, path []int) error {
+			pathStr := ""
+			for i, t := range path {
+				if i != len(path)-1 {
+					pathStr += fmt.Sprintf("%d, ", t)
 				} else {
-					trailStr += fmt.Sprintf("%d", t)
+					pathStr += fmt.Sprintf("%d", t)
 				}
 			}
 			m.Lock()
 			defer m.Unlock()
-			_, ok := expectedTrails[trailStr]
+			_, ok := expectedTrails[pathStr]
 			if !ok {
-				return fmt.Errorf("unexpected trail: %s", trailStr)
+				return fmt.Errorf("unexpected path: %s", pathStr)
 			}
-			delete(expectedTrails, trailStr)
+			delete(expectedTrails, pathStr)
 			delete(foundVals, i)
 			return nil
 		})
@@ -1405,7 +1402,7 @@ func TestForEachParallelTrackedWithNodeSink(t *testing.T) {
 			t.Fatal("didnt see enough values")
 		}
 		if len(expectedTrails) != 0 {
-			t.Fatal("didnt see expected trails")
+			t.Fatal("didnt see expected paths")
 		}
 		if counterSink.calledTimes != expectedSinkCount {
 			t.Fatal("didnt call sink enough times")
